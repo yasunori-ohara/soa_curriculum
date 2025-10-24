@@ -1,4 +1,4 @@
-# 09 補足2：FastAPI と Pydantic
+# 09 補足2
 
 # 補足2：FastAPI と Pydantic
 
