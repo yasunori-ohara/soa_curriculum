@@ -1,29 +1,35 @@
 # 03 Use Case Interactor
 
-# Use Case
+# 🗄 Use Case（Interactor）
+
 ### `core/usecase/interactor/create_todo.py`
 
 ## 🧭 このクラスの役割
 
-`TodoUseCase` は、このアプリケーションにおける**具体的なシナリオ（ユースケース）を一つ担当するクラスです。`Entity`がビジネスの「材料」だとしたら、Use Caseはそれらの材料を使って特定の料理（目的）を完成させるための「レシピ」であり、「シェフ」の役割**を担います。
+`TodoUseCase` は、このアプリケーションにおける**具体的なシナリオ（ユースケース）を1つ担当するクラス**です。
+
+* Entityがビジネスの「材料」だとしたら、
+* Use Caseはその材料を使って、ユーザーの目的（＝「やりたいこと」）を達成するための「レシピ」であり「シェフ」です。
 
 ![クリーンアーキテクチャ](../クリーンアーキテクチャ.png)
 
-このクラスは、「TODOを追加する」というユーザーの目的を達成するための一連の手順を定義し、`Entity`や外部の機能（DBなど）を指揮（オーケストレーション）します。
+このクラスは、「TODOを追加する」というユースケースを実現するための一連の手順を定義し、`Todo`エンティティを扱い、Repositoryに保存を依頼し、その結果をPresenterに渡すまでを取りまとめます。
+この「調整役」「指揮者」の役割を担うのがインタラクター（Interactor）です。
 
-`Entity`が持つ普遍的なルールとは異なり、この**アプリケーション固有のビジネスルール**がここに実装されます。
+> ✅ ここに入るのは「アプリケーション固有のビジネスルール」です。
+> ドメインの普遍的なルールは Entity 側に置きます。
 
 ---
 
-## 🧑‍🍳 Use Casesとは何か？
+## 🧑‍🍳 Use Case とは？
 
-Use Casesは、アプリケーション固有のビジネスルールを実装する層です。
+Use Case層は、アプリケーション固有のビジネスルールを実装する層です。
 
-Entitiesがビジネスの**「名詞」**と**「物理法則」**だとしたら、Use Casesはその法則を使って**具体的な目的を達成するための「動詞」や「レシピ」**にあたります。
+* Entities がビジネスの**名詞（Todo, Book, Loan...）と物理法則**なら、
+* Use Caseはそれらを「どう使ってどんな業務を達成するか」という**動詞・手順書**です。
 
-ユーザーがこのアプリケーションで「何をしたいか」（例：「TODOを追加したい」「商品を注文したい」）を、一つ一つのクラスとして表現します。
-
-このクラスは、**Interactor（インタラクター）**とも呼ばれます。
+ユーザーの目的（「TODOを追加したい」「本を貸し出したい」など）を1つずつクラスとして表します。
+この「1ユースケース＝1クラス」パターンは、テストしやすさ・変更のしやすさに直結します。
 
 ---
 
@@ -31,45 +37,56 @@ Entitiesがビジネスの**「名詞」**と**「物理法則」**だとした�
 
 ✅ **含めるべき処理の例**
 
-* **Entityの指揮（オーケストレーション）**
-* **アプリケーション固有のルール**
-* **外部への要求（インターフェースを通じた呼び出し）**
+* エンティティの生成・状態遷移を指揮する
+* アプリケーション固有の前処理・後処理（トリムや権限制御など）
+* Repository・Presenter といった周辺コンポーネントを「抽象インターフェース越しに」呼び出す
 
 ❌ **含めてはいけない処理の例**
 
-* UIに関する知識（`print`文など）
-* DBに関する知識（SQLなど）
-* フレームワーク依存コード（Django/Flaskなど）
-* 具体クラスへの依存（PresenterやRepositoryの実装を直接使う）
+* 画面表示ロジック（それは Presenter の責務）
+* DB固有の処理やSQL（それは infrastructure の責務）
+* Web/CLIフレームワークに依存する処理（それは View/Controller の責務）
+* 具体クラスへの依存（必ずインターフェースに依存する）
 
 ---
 
-## 🔍 ソースコード
+## 📂 ユースケース関連ファイルの配置
 
-### このユースケースのファイル配置
-```
-├─ core/                           # 内側2層（Entity + UseCase）
-│   ├─ domain/                     # Entity層（ビジネスルール）
-│   │   ├─ todo.py                 # <E> Entity
-│   │   ├─ repository.py           # <I> Repository / Data Access Interface
-│   │   └─ errors.py
+このユースケース（「TODOを追加する」）に関係するファイルは、以下のようにレイヤーごとに整理されます。
+
+```text
+clean_architecture_todo/
+├─ core/
+│   ├─ domain/
+│   │   ├─ todo.py                # <E> Entity (Todo)
+│   │   ├─ repository.py          # <I> TodoRepository 抽象 (Data Access Interface)
+│   │   └─ errors.py              # ドメイン固有エラー（必要なら）
 │   │
-│   └─ usecase/                    # UseCase層（アプリケーションルール）
-│       ├─ interactor/             # UseCase本体（Interactor）
-│       │   └─ create_todo.py      # 「TODOを追加する」ユースケース本体
+│   └─ usecase/
+│       ├─ interactor/
+│       │   └─ create_todo.py     # ← いま説明しているユースケース本体（Interactor）
 │       │
-│       └─ boundary/               # 境界（UI ⇔ UseCase 間の契約）
-│           ├─ input_boundary.py   # <I> InputBoundary（Controllerが呼ぶ）
-│           ├─ output_boundary.py  # <I> OutputBoundary（Presenterが実装）
-│           └─ dto.py              # <DS> DataStructure（Input/Outputデータ）
+│       └─ boundary/
+│           ├─ dto.py             # <DS> Data Structures (TodoInputData, TodoOutputData, TodoViewModel)
+│           ├─ input_boundary.py  # <I> TodoInputBoundary（Controllerが呼ぶ"入口"契約）
+│           └─ output_boundary.py # <I> TodoOutputBoundary（Presenterが実装する"出口"契約）
+│
+
 ```
 
-### 【補足：コードで使う Repository とは？】
+この図で押さえてほしいことは1つだけです：
 
-この後出てくるコードでは、データ永続化（保存・取得）を担当するインターフェースを、クラス図にある「Data Access Interface」という名前ではなく、Repository (リポジトリ) という名前で扱います。
-Repositoryとは、ドメイン駆動設計（DDD）で使われるパターンで、**「Entity（Todo）の集合を管理する抽象的な倉庫」**を意味します。この倉庫に保存を依頼することで、私たちはデータベースの種類を一切知らずに済みます。
+> UseCase（`create_todo.py`）は、
+>
+> * Presenterにも
+> * Repositoryにも
+>   具体型ではなく **インターフェース** だけで依存している。
+
+これがテスト容易性と差し替え自由度の源です。
 
 ---
+
+## 🔍 ソースコード（`core/usecase/interactor/create_todo.py`）
 
 ```python
 # --------------------------------------------------------------------
@@ -77,17 +94,18 @@ Repositoryとは、ドメイン駆動設計（DDD）で使われるパターン�
 # Layer: Use Case（アプリケーション固有のビジネスルール）
 #
 # 目的:
-#   - TODO管理に関するユースケース（ここでは「TODOを追加する」）を実現するクラス。
-#   - Entity（材料）を指揮し、外部システム（保存・表示）は境界インターフェース越しに依頼する。
+#   - 「TODOを追加する」というユースケースの処理手順を定義する。
+#   - Entity（材料）を生成・操作し、
+#     永続化（保存）と表示準備（Presenter）をオーケストレーションする。
 #
-# C言語の感覚に近い説明:
-#   - クラスは「構造体＋関数」のようなもの。
-#   - 依存性注入（DI）は「関数ポインタ（抽象インターフェース）を受け取って差し替え可能にする」イメージ。
-#   - 例外は「失敗を呼び出し側へ通知する仕組み」。必要に応じてPresenterが人向けに整形する。
+# C言語にたとえると:
+#   - このクラスは「手続きのメイン関数」に近い。
+#   - RepositoryやPresenterは「関数ポインタ」として外から渡されるイメージ。
+#     （依存性注入 = DI）
 # --------------------------------------------------------------------
 
 from core.domain.todo import Todo
-from core.domain.repository import TodoRepository  # Data Access Interface（抽象）
+from core.domain.repository import TodoRepository           # <I> Data access 抽象
 from core.usecase.boundary.input_boundary import TodoInputBoundary
 from core.usecase.boundary.output_boundary import TodoOutputBoundary
 from core.usecase.boundary.dto import TodoInputData, TodoOutputData
@@ -98,136 +116,138 @@ class TodoUseCase(TodoInputBoundary):
     「TODOを追加する」というユースケースを実装するクラス。
 
     - TodoInputBoundary（入力境界インターフェース）を実装することで、
-      外部の層（Controllerなど）はこのクラスを「契約書どおりに呼び出せる」。
+      Controllerなどの呼び出し側は
+      「TodoUseCaseがこの契約どおりに動く」と信じて呼び出せる。
     """
 
     def __init__(self, presenter: TodoOutputBoundary, repository: TodoRepository):
         """
-        [依存性の注入（Dependency Injection）]
+        [依存性の注入 / Dependency Injection]
 
-        このクラスが動作するために必要な「部品」
-        （PresenterとRepository）を、
-        具体的な実装クラスではなく、抽象的なインターフェース
-        （Boundary／Repositoryインターフェース）として受け取る。
+        このクラスが動くために必要な依存物を、
+        具体クラスではなく抽象インターフェースとして受け取る。
 
-        これにより、UIやDBの実装からこのクラスは完全に独立する。
+        - presenter: TodoOutputBoundary
+            UseCaseの結果をどうユーザー向けに整形するかはPresenterの責務。
+            UseCaseは「結果を渡す」ことだけ知ればいい。
+
+        - repository: TodoRepository
+            データをどこに保存するか（メモリ？DB？ファイル？）は
+            UseCaseの関心ではない。Repositoryインターフェース越しに依頼する。
         """
         self._presenter = presenter
         self._repository = repository
 
     def execute(self, input_data: TodoInputData) -> None:
         """
-        [ビジネスロジックの実行]
-        このユースケース（TODOを追加する）における具体的な処理手順（レシピ）を記述する。
+        [ユースケースの手順そのもの]
+
+        1. 入力データを受け取る
+        2. エンティティを生成する
+        3. Repositoryに「保存してくれ」と依頼する
+        4. Presenterに結果を渡す
+
+        この流れこそが「TODOを1つ登録する」というビジネスシナリオ。
         """
 
-        # --- 前処理: タイトルの空白を除去（UX向上・品質担保） ---
+        # --- Step 1: 入力の正規化（アプリ固有の前処理） ---
         normalized_title = input_data.title.strip()
+        # ※ 空文字チェックなどの厳しいバリデーション自体は
+        #    Todoエンティティのコンストラクタに任せる。
 
-        # Entityが詳細な検証（空文字禁止・ID正）を担当するため、
-        # ここでは「人間が入力しがちな不要な空白」の除去のみに留める。
-
-        # --- Entity生成 ---
-        # IDはEntityの必須属性だが、具体的な採番はRepository側の責務のため、
-        # ここでは「未採番」の仮IDとして id=0 をセットしておく。
+        # --- Step 2: エンティティの生成 ---
+        # IDは本来ユニークであるべきだが、
+        # その採番戦略はインフラ側（Repository実装）の責務にする。
+        # ここでは「未採番」を意味する仮IDとして id=0 を渡す。
         new_todo = Todo(id=0, title=normalized_title)
 
-        # --- 永続化要求 ---
-        # Repository（データ永続化層）に保存を依頼。
-        # Repositoryは保存時にIDを割り当て、その結果（IDがセットされた新しいTodo）を返す。
+        # --- Step 3: 永続化の依頼 ---
+        # Repositoryは保存時に正式なIDを付与して返す想定。
         saved_todo = self._repository.save(new_todo)
 
-        # --- 出力データ生成 ---
-        # Presenterに渡すための出力データ（アプリケーションレイヤの素の箱）を組み立てる。
+        # --- Step 4: 出力データを用意 ---
+        # Presenterに渡すための「素の結果オブジェクト」（DTO）を組み立てる。
         output_data = TodoOutputData(
             id=saved_todo.id,
             title=saved_todo.title,
         )
 
-        # --- Presenterへの通知 ---
-        # 出力境界（OutputBoundary）を通じて、Presenterに結果を渡す。
+        # --- Step 5: Presenterに引き渡し ---
+        # View向けのメッセージ整形やViewModel更新はPresenterの仕事なので、
+        # UseCaseはただ「これが結果だよ」と渡すだけでOK。
         self._presenter.present(output_data)
 ```
 
 ---
 
-## 🧪 この段階でユニットテストをすることができます
+## 🧪 ユニットテストはこの段階ですでに書けます
 
-Use Caseは外部の具体実装（DB・UI）を**インターフェース越しに扱う**ため、**フェイク（簡易実装）**を注入すれば、この段階でユニットテストが可能です。
+ここがクリーンアーキテクチャのうまみです。
+UseCaseは Presenter と Repository に「抽象として」しか依存していないので、テストでは簡単なフェイクを注入できます。
 
-以下に、**最小限のフェイクRepository・フェイクPresenter**を使ったテスト例を示します。
+以下はユースケースの単体テスト例です。
 
-### 📁 `tests/unit/test_create_todo_usecase.py`
+📄 `tests/unit/test_create_todo_usecase.py`
 
 ```python
-# --------------------------------------------------------------------
-# ユニットテスト例: TodoUseCase の振る舞い確認
-# - フェイクRepository/Presenterで、外部依存を排除
-# - Python標準の unittest を使用（初心者にも扱いやすい）
-# --------------------------------------------------------------------
-
 import unittest
 
 from core.domain.todo import Todo
+from core.domain.repository import TodoRepository
 from core.usecase.boundary.dto import TodoInputData, TodoOutputData
 from core.usecase.boundary.output_boundary import TodoOutputBoundary
 from core.usecase.interactor.create_todo import TodoUseCase
-from core.domain.repository import TodoRepository
 
 
-# --- フェイク実装: Presenter（結果受け取り側） ---
+# Presenterのフェイク（実際はViewModelを更新する役割だが、ここでは記録だけする）
 class FakePresenter(TodoOutputBoundary):
-    """結果の受け取りを記録するだけのフェイクPresenter"""
     def __init__(self):
-        self.last_output = None
+        self.last_output: TodoOutputData | None = None
 
     def present(self, output_data: TodoOutputData) -> None:
-        # Presenterは通常、ViewModelを更新するが、
-        # このフェイクは渡されたデータをそのまま保持するだけ
         self.last_output = output_data
 
 
-# --- フェイク実装: Repository（保存・取得側） ---
+# Repositoryのフェイク（メモリ上に積むだけの簡易版）
 class InMemoryTodoRepository(TodoRepository):
-    """メモリ上にTodoを保持するだけの簡易Repository"""
     def __init__(self):
-        self._store = []
-        self._next_id = 1  # ID採番用のカウンター
-
-    def find_all(self):
-        # 現在の一覧を返す（コピーで返すとより安全）
-        return list(self._store)
+        self._store: list[Todo] = []
+        self._next_id = 1
 
     def save(self, todo: Todo) -> Todo:
-        # Entityが仮ID（0）で渡されるので、ここで正式なIDを付与する
         todo.id = self._next_id
         self._next_id += 1
         self._store.append(todo)
         return todo
 
+    def find_all(self) -> list[Todo]:
+        # ユースケース側で呼んでないが、実用時に便利なので用意しておく
+        return list(self._store)
+
 
 class TestTodoUseCase(unittest.TestCase):
     def setUp(self):
-        # PresenterとRepositoryをフェイクで用意し、UseCaseに注入
         self.presenter = FakePresenter()
-        self.repository = InMemoryTodoRepository()
-        self.use_case = TodoUseCase(self.presenter, self.repository)
+        self.repo = InMemoryTodoRepository()
+        self.usecase = TodoUseCase(self.presenter, self.repo)
 
     def test_add_first_todo(self):
-        # 入力（前後空白はUseCaseで除去される）
+        # Arrange
         input_data = TodoInputData(title="  最初のタスク  ")
-        self.use_case.execute(input_data)
 
-        # Presenterに結果が渡っていること
+        # Act
+        self.usecase.execute(input_data)
+
+        # Assert: Presenterに通知されたか？
         self.assertIsNotNone(self.presenter.last_output)
-        self.assertEqual(self.presenter.last_output.id, 1)
         self.assertEqual(self.presenter.last_output.title, "最初のタスク")
+        self.assertEqual(self.presenter.last_output.id, 1)
 
-        # Repositoryに保存されていること
-        all_todos = self.repository.find_all()
+        # Assert: Repositoryに保存されたか？
+        all_todos = self.repo.find_all()
         self.assertEqual(len(all_todos), 1)
-        self.assertEqual(all_todos[0].id, 1)
         self.assertEqual(all_todos[0].title, "最初のタスク")
+        self.assertEqual(all_todos[0].id, 1)
         self.assertFalse(all_todos[0].completed)
 
     def test_add_second_todo_increments_id(self):
@@ -241,46 +261,67 @@ class TestTodoUseCase(unittest.TestCase):
         self.assertEqual(self.presenter.last_output.id, 2)
 
     def test_empty_title_raises_value_error_from_entity(self):
-        # 空白のみ → UseCaseがstripし、Entityが空文字エラーを投げる
+        # Arrange
         input_data = TodoInputData(title="   ")
+
+        # Act & Assert
         with self.assertRaises(ValueError):
-            self.use_case.execute(input_data)
+            self.usecase.execute(input_data)
 
 
 if __name__ == "__main__":
     unittest.main()
 ```
 
-> 💡 テストの着眼点
->
-> * Presenterへの通知（`present()`に正しい値が渡る）
-> * Repositoryに保存される（追加後の状態確認）
-> * IDの採番ルール（自動採番）
-> * エラー処理（Entityが投げた例外をそのまま伝える）
+意図としてはこうです：
+
+* ✅ UseCaseがRepositoryに保存を依頼していること
+* ✅ ID採番はRepository側に任せていること
+* ✅ Presenterに正しい結果（DTO）が渡ること
+* ✅ 空のタイトルなどドメインルール違反はEntity側で例外になること
+
+どれも UI や DB を一切立ち上げずにテストできます。これが本当に大きい。
 
 ---
 
 ## 🛡 このクラスの鉄則
 
-> ビジネスロジックを指揮せよ、ただし詳細には関わるな。
+> ビジネスロジックを指揮せよ。ただし詳細には関わるな。
 
-* 外側のレイヤー（Adapters, Frameworks）の変更が、このレイヤーに影響を与えてはいけません。
-* この層はアプリケーションが**何をするか（What）**を定義し、外側は**どうやって（How）**を定義します。
+* UseCaseは「何をするか（What）」だけを書く。
 
----
+  * 何をチェックするか
+  * いつ保存するか
+  * どんなデータを返すか
+* 「どうやるか（How）」は外側の責務。
 
-## 📝 補足：説明の順番について
-
-このアーキテクチャでは、**内側の層が外側へ「何が必要か」を宣言**します。
-
-1. **Use Case が「この仕事を頼むなら、この入力データ（`TodoInputData`）で」と要求**
-2. それに応じて、**`TodoInputData`／`TodoOutputData` とインターフェース（`InputBoundary` / `OutputBoundary`）**が設計される
-
-料理の比喩で言えば、**シェフ（Use Case）**が目的から逆算して、必要な**道具（Data Structures／Interfaces）**を定義する流れです。
+  * どう保存するか → Repository実装（infrastructure）
+  * どう表示するか → Presenter / View
+  * どう呼ばれるか → Controller / View
 
 ---
 
-## 🔧 実務への改善提案（参考）
+## 📝 ちょっと大事な順番の話
 
-* 🛑 エラー提示用のOutputBoundary（例：`present_error()`など）
-* 🔁 トランザクション境界の明示（複数操作の一体性）
+このアーキテクチャでは、**内側の層が外側に「こういう形で呼んでください」と宣言します。**
+
+1. UseCaseが「このユースケースは `execute(input_data)` で呼んでください」と決める
+2. その形を `TodoInputBoundary` / `TodoInputData` としてコード化する
+3. Controller はその契約どおりに呼ぶ
+4. UseCaseは、結果を `TodoOutputBoundary.present(output_data)` で外に返す
+5. Presenter はそれを受け取って ViewModel を更新する
+
+つまり、
+**主導権は常に内側（UseCase）にあります。**
+外側は合わせに来る側です。これは現実の業務フローの設計責任とよく似ています。
+
+---
+
+## 🔧 実務での追加ポイント（参考）
+
+* 例外（ドメインエラーやバリデーションエラー）をOutputBoundary経由でPresenterに渡し、エラーメッセージをViewModelに詰める、という設計もよく使われます。
+* 複数のリポジトリ呼び出しが1トランザクションであるべき場合（例：図書館の「本を貸し出す」処理など）は、UseCase側が「このユースケースは1トランザクションでやってください」と宣言し、インフラ側（Unit of Workなど）にそれを実現させることがあります。
+
+---
+
+次はこのUseCaseに関連する「Data Structures（InputData / OutputData / ViewModel）」と「InputBoundary / OutputBoundary」のページを、`core/usecase/boundary/` 配下の正式な構成に沿ってアップデートしていきます。
