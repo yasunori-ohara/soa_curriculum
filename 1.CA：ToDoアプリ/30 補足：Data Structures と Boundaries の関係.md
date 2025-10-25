@@ -1,4 +1,4 @@
-# 05 Data Structures と Boundaries の関係
+# 30 補足：Data Structures と Boundaries の関係
 
 ## 💡 Data Structures と Boundaries の関係
 
@@ -102,7 +102,7 @@
 
 ## 💡 なぜ Input Boundary と Output Boundary は「Boundary」で、Data Access Interface は「Interface」なのか？
 
-![クリーンアーキテクチャ・クラス図](https://www.notion.so../%E3%82%AF%E3%83%AA%E3%83%BC%E3%83%B3%E3%82%A2%E3%83%BC%E3%82%AD%E3%83%86%E3%82%AF%E3%83%81%E3%83%A3%E3%83%BB%E3%82%AF%E3%83%A9%E3%82%B9%E5%9B%B3.png)
+![クリーンアーキテクチャ](../クリーンアーキテクチャ・クラス図.png)
 
 ### 1. **Boundary は「レイヤー間の境界」を強調する言葉**
 

@@ -1,6 +1,7 @@
-# 03 Data Structures
+# 06 Data Structures (DTO / ViewModel)
 
-# 📦 Data Structures : `data_structures.py`
+# 📦 Data Structures
+### `core/usecase/boundary/dto.py`
 
 ## ✉️ このファイルの役割
 
@@ -16,12 +17,25 @@
 
 ⭕️ **含めるべき処理の例**
 
-- 運搬するデータフィールド（属性）の定義のみ。
+* 運搬するデータフィールド（属性）の定義のみ。
 
 ❌ **含めてはいけない処理の例**
 
-- ビジネスロジック、計算、バリデーションなど、**いかなるロジックも禁止**
-- データベースへのアクセスやUI更新など、他レイヤーの責務を持つ処理
+* ビジネスロジック、計算、バリデーションなど、**いかなるロジックも禁止**
+* データベースへのアクセスやUI更新など、他レイヤーの責務を持つ処理
+
+---
+
+## 📁 このファイルの配置
+
+```
+├─ core/
+│   └─ usecase/
+│       └─ boundary/
+│           ├─ input_boundary.py    # <I> InputBoundary（Controllerが呼ぶ）
+│           ├─ output_boundary.py   # <I> OutputBoundary（Presenterが実装）
+│           └─ dto.py               # <DS> DataStructure（Input/Output/ViewModel）
+```
 
 ---
 
@@ -29,7 +43,7 @@
 
 ```python
 # --------------------------------------------------------------------
-# File: data_structures.py
+# File: core/usecase/boundary/dto.py
 # Layer: Data Structures（レイヤー間のデータ運搬専用）
 #
 # 目的:
@@ -61,6 +75,7 @@ class TodoInputData:
     """
     title: str
 
+
 # --------------------------------------------------------------------
 # <DS> Output Data に相当
 #
@@ -79,6 +94,7 @@ class TodoOutputData:
     id: int
     title: str
 
+
 # --------------------------------------------------------------------
 # <DS> View Model に相当
 #
@@ -96,31 +112,30 @@ class TodoViewModel:
     Presenterがこのオブジェクトを加工できるようにしている。
     """
     display_text: str = ""
-
 ```
 
 ---
 
 ## 🧩 なぜ `@dataclass` を使うのか？
 
-- Pythonで構造体的なクラスを簡潔に定義できる。
-- `__init__` や `__repr__` などを自動生成してくれるため、コード量を削減できる。
-- 型ヒント付きで明確な構造を持つため、IDEや静的解析ツールによる補助が効く。
+* Pythonで構造体的なクラスを簡潔に定義できる。
+* `__init__` や `__repr__` などを自動生成してくれるため、コード量を削減できる。
+* 型ヒント付きで明確な構造を持つため、IDEや静的解析ツールによる補助が効く。
 
 ---
 
 ## 🔐 なぜ `frozen=True` が重要なのか？
 
-- イミュータブル（変更不可）にすることで、**安全性と予測可能性が向上**する。
-- 受け渡し中にデータが意図せず変更されることを防ぎ、**バグの温床を減らす**。
-- 特に `InputData` や `OutputData` は、**一度生成されたら変更されるべきではない**ため、`frozen=True` が適している。
+* イミュータブル（変更不可）にすることで、**安全性と予測可能性が向上**する。
+* 受け渡し中にデータが意図せず変更されることを防ぎ、**バグの温床を減らす**。
+* 特に `InputData` や `OutputData` は、**一度生成されたら変更されるべきではない**ため、`frozen=True` が適している。
 
 ---
 
 ## 🔄 なぜ `TodoViewModel` はミュータブルなのか？
 
-- Presenterが画面表示用に加工する必要があるため。
-- ViewModelは「表示のための状態」を保持する役割なので、**Presenterが自由に編集できるようにしておく**のが自然。
+* Presenterが画面表示用に加工する必要があるため。
+* ViewModelは「表示のための状態」を保持する役割なので、**Presenterが自由に編集できるようにしておく**のが自然。
 
 ---
 
@@ -134,7 +149,8 @@ class TodoViewModel:
 # --------------------------------------------------------------------
 
 import unittest
-from data_structures import TodoInputData, TodoOutputData, TodoViewModel
+from core.usecase.boundary.dto import TodoInputData, TodoOutputData, TodoViewModel
+
 
 class TestDataStructures(unittest.TestCase):
     def test_input_data_is_immutable(self):
@@ -155,9 +171,9 @@ class TestDataStructures(unittest.TestCase):
         vm.display_text = "更新可能"
         self.assertEqual(vm.display_text, "更新可能")
 
+
 if __name__ == "__main__":
     unittest.main()
-
 ```
 
 ---
@@ -165,7 +181,7 @@ if __name__ == "__main__":
 ## 🛡 鉄則
 
 > ただ運び、何も考えるな。
-> 
-- ロジック禁止（計算・判定・条件分岐などは一切書かない）
-- DBやUIの責務禁止（保存・表示などは他レイヤーに任せる）
-- 不変性を守る（Input/Outputは `frozen=True`）
+
+* ロジック禁止（計算・判定・条件分岐などは一切書かない）
+* DBやUIの責務禁止（保存・表示などは他レイヤーに任せる）
+* 不変性を守る（Input/Outputは `frozen=True`）
