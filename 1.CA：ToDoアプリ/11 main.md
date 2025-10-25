@@ -3,151 +3,169 @@
 # 🚀 Main
 ### `main.py`
 
----
 
 ## 🧭 このファイルの役割
 
 `main.py` は、アプリ全体を「起動可能な形」に束ねる場所です。
 
-ここでは以下のオブジェクトを生成し、正しく接続します：
+ここでは、アプリを動かすために必要な部品たちをすべて生成し、正しい順番でお互いを接続します。
 
-* `InMemoryTodoRepository`
-  永続化の実装（インフラ層）
-* `TodoPresenter`
-  UseCaseの出力をViewModelに反映する
-* `TodoController`
-  Viewからの入力をUseCaseへ橋渡しする
+登場する主なオブジェクトは以下の通りです：
+
+* `InMemoryBookRepository` / `InMemoryMemberRepository` / `InMemoryLoanRepository`
+  永続化（Repositoryインターフェースの具体実装：データの保存先）。技術側の担当。
+* `CheckOutBookUseCase`
+  ビジネスフローの中心（「本を貸し出す」という業務シナリオの実行者）。
+* `CheckOutBookPresenter`
+  Use Case の出力結果を人間が読めるメッセージに整形し、ViewModelに反映する翻訳者。
+* `CheckOutBookController`
+  View から渡された入力値（book_idなど）を Use Case が受け取れる形（InputData）にして引き渡す交通整理員。
 * `ConsoleView`
-  入出力の最終フロント（ユーザーと対話）
-* `TodoUseCase`
-  ビジネスフローの中心（Interactor）
-* `TodoViewModel`
-  Viewが表示するための状態
-* `TodoInputBoundary` / `TodoOutputBoundary`
-  （インターフェース。直接インスタンス化はしないが、依存形として重要）
+  ユーザーと直接対話する層。入力を受け取り、結果を表示する最前線。
+* `BookViewModel`
+  Presenter と View が共有する、「画面に今なにを表示すべきか」を保持する状態オブジェクト。
 
-これらが正しくつながると、ユーザーの入力がEntityまで届き、結果がまたViewに戻ります。
+この1ファイルで、ユーザーの入力が `Entity` まで届き、結果がまた画面に戻ってくるループが成立します。
 
 ---
 
 ## 🔁 全体の依存の流れ（おさらい）
 
-ユーザー入力から表示までの流れはこうなります：
+ユーザーの「貸出したい」という操作が結果表示まで届く流れはこうなります：
 
-1. View（`ConsoleView`）がユーザーからタイトル文字列を受け取る
-2. Controller（`TodoController`）が `TodoInputData` を組み立て、UseCaseを呼び出す
-3. UseCase（`TodoUseCase`）が
+1. View（`ConsoleView`）がユーザーから `book_id` と `member_id` の入力を受け取る
+2. Controller（`CheckOutBookController`）がその値を `CheckOutBookInputData` に詰めて、Use Case をコールする
+3. Use Case（`CheckOutBookUseCase`）が
 
-   * `Todo` Entityを作る
-   * Repository（`InMemoryTodoRepository`）に保存する
-   * 結果を `TodoOutputData` にまとめる
-   * OutputBoundary（`TodoOutputBoundary`）を呼ぶ
-4. Presenter（`TodoPresenter`）が ViewModel（`TodoViewModel`）を書き換える
-5. View が ViewModel の内容を画面に表示する
+   * `BookRepository` から本を取得
+   * `MemberRepository` から会員を取得
+   * `Book` Entity に `check_out()` を実行させ、状態を「貸出中」にする
+   * 新しい `Loan` Entity を作る
+   * `BookRepository` / `LoanRepository` に保存（永続化）を依頼
+   * 結果を `CheckOutBookOutputData` にまとめ、Presenter を呼ぶ
+4. Presenter（`CheckOutBookPresenter`）が
 
-この一連のパイプラインを、`main.py` で組み上げて実際に回します。
+   * 返却期限などを「人間が読むメッセージ」に整形
+   * `BookViewModel` を更新
+5. View（`ConsoleView`）が `BookViewModel` の内容をコンソールに表示する
+
+この一連のパイプラインを、`main.py` が配線してスタートさせます。
 
 ---
 
-## 📁 全体の最終フォルダ構成（ここまでの完成形）
+## 📁 全体の最終フォルダ構成（ここまでで完成させたい形）
 
-```
-clean_architecture_todo/
+```text
+clean_architecture_library/
 ├─ core/
 │   ├─ domain/
-│   │   ├─ todo.py                 # 01 Entity
-│   │   ├─ repository.py           # 02 Repository Interface
-│   │   └─ errors.py               # （必要ならドメイン固有エラー）
+│   │   ├─ book.py                  # 01 Entities（Book, BookStatus）
+│   │   ├─ member.py                # 01 Entities（Member）
+│   │   ├─ loan.py                  # 01 Entities（Loan）
+│   │   └─ repository.py            # 02 Repository Interface
 │   │
 │   └─ usecase/
-│       ├─ interactor/
-│       │   └─ create_todo.py      # 03 UseCase (TodoUseCase)
-│       └─ boundary/
-│           ├─ input_boundary.py   # 04 InputBoundary
-│           ├─ output_boundary.py  # 05 OutputBoundary
-│           └─ dto.py              # 06 Data Structures (TodoInputData等)
+│       ├─ boundary/
+│       │   ├─ dto.py               # 03 Data Structures (InputData / OutputData / ViewModel)
+│       │   ├─ input_boundary.py    # 04 InputBoundary（Controllerが呼ぶ）
+│       │   └─ output_boundary.py   # 05 OutputBoundary（Presenterが実装）
+│       │
+│       └─ interactor/
+│           └─ check_out_book.py    # 06 Use Case (CheckOutBookUseCase)
 │
 ├─ interface_adapters/
+│   ├─ data_access/
+│   │   └─ in_memory_repositories.py    # 07 Data Access（InMemoryBookRepositoryなど）
 │   ├─ presenters/
-│   │   └─ todo_presenter.py       # 07 Presenter
+│   │   └─ checkout_presenter.py        # 08 Presenter (CheckOutBookPresenter)
 │   ├─ controllers/
-│   │   └─ todo_controller.py      # 08 Controller
+│   │   └─ checkout_controller.py       # 09 Controller (CheckOutBookController)
 │   └─ views/
-│       └─ view_console.py         # 09 View
+│       └─ view_console.py              # 10 View (ConsoleView)
 │
-├─ infrastructure/
-│   └─ repositories/
-│       └─ in_memory_todo_repository.py  # 10 Data Access実装
-│
-└─ main.py                         # 11 Main (Composition Root)
+└─ main.py                              # 11 Main（Composition Root）
 ```
+
+* `core/` はビジネス側（内側）
+* `interface_adapters/` は技術側（外側）
+* `main.py` は最外層の「配線係」
 
 ---
 
 ## 🔍 ソースコード（main.py）
 
-ここでは、依存の内側から順にインスタンスを用意していきます。
+組み立ての順番には意味があります。
 
-* ViewModel は Presenter と View の間で共有される「状態」なので、最初に作る
-* Repository の実体はインフラ層（InMemory版）を使う
-* UseCase は Presenter と Repository に依存するので、それらを渡して生成
-* Controller は UseCase（正確には InputBoundary としてのUseCase）に依存する
-* View は Controller と ViewModel に依存する
-
-この順番で組み立てます。
+* ViewModel は Presenter と View の間で共有される状態なので最初に作る
+* Repository は Use Case に注入されるので先に作る
+* Presenter は Use Case から呼ばれるので先に作る
+* Use Case は Controller から呼ばれるのでそのあと
+* Controller は View から呼ばれるのでそのあと
+* 最後に View を作って、`run()` でアプリを開始する
 
 ```python
 # --------------------------------------------------------------------
 # File: main.py
-# Layer: Composition Root (アプリの組み立てと起動)
+# Layer: Composition Root（アプリの組み立てと起動）
 #
 # 目的:
-#   - 全コンポーネントを生成して依存関係を接続し、
-#     アプリを実際に動作可能な状態にする。
+#   - 図書館アプリ全コンポーネントを生成し、
+#     正しい依存関係でつなげて、アプリを動かす。
 #
 # 注意:
-#   - ここは「アプリ起動のための配線場所」なので、
-#     ビジネスロジックは書かないこと。
-#   - main.py はインフラ層にも依存してよい（一番外側だから）。
+#   - ここは「配線する場所」。業務ロジックは書かないこと。
+#   - main.py は最外層なので、内側(core)にも外側(interface_adapters)にも
+#     依存してよい。
 # --------------------------------------------------------------------
 
-from core.usecase.boundary.dto import TodoViewModel
-from core.usecase.interactor.create_todo import TodoUseCase
-from interface_adapters.presenters.todo_presenter import TodoPresenter
-from interface_adapters.controllers.todo_controller import TodoController
+from core.usecase.boundary.dto import BookViewModel
+from core.usecase.interactor.check_out_book import CheckOutBookUseCase
+
+from interface_adapters.data_access.in_memory_repositories import (
+    InMemoryBookRepository,
+    InMemoryMemberRepository,
+    InMemoryLoanRepository,
+)
+from interface_adapters.presenters.checkout_presenter import CheckOutBookPresenter
+from interface_adapters.controllers.checkout_controller import CheckOutBookController
 from interface_adapters.views.view_console import ConsoleView
-from infrastructure.repositories.in_memory_todo_repository import InMemoryTodoRepository
 
 
 def main():
     # 1. ViewModelを作成
     #    - Presenterが更新し、Viewが参照する「表示用の状態オブジェクト」
-    view_model = TodoViewModel()
+    view_model = BookViewModel(display_text="")  # 初期表示は空メッセージ
 
-    # 2. Repositoryの具体実装を用意
-    #    - ここではインメモリ実装（DBなし）を使う
-    repository = InMemoryTodoRepository()
+    # 2. Repository（Data Access: 永続化の具体実装）を用意
+    #    - ここではインメモリ(fake DB)版を使う
+    book_repo = InMemoryBookRepository()
+    member_repo = InMemoryMemberRepository()
+    loan_repo = InMemoryLoanRepository()
 
     # 3. Presenterを作成
-    #    - PresenterはOutputBoundaryを実装しており、
-    #      UseCaseから結果を受け取ってViewModelを書き換える
-    presenter = TodoPresenter(view_model)
+    #    - OutputBoundaryを実装しており、
+    #      Use Case からの結果を ViewModel に反映する
+    presenter = CheckOutBookPresenter(view_model)
 
-    # 4. UseCase（Interactor）を作成
-    #    - UseCaseは InputBoundary を実装している（＝Controllerから呼び出される）
-    #    - UseCaseは OutputBoundary と Repository に依存する
-    use_case = TodoUseCase(presenter, repository)
+    # 4. Use Case（Interactor）を作成
+    #    - ビジネスフローの司書役
+    #    - Repository群とPresenterに依存する
+    use_case = CheckOutBookUseCase(
+        presenter=presenter,
+        book_repository=book_repo,
+        member_repository=member_repo,
+        loan_repository=loan_repo,
+    )
 
     # 5. Controllerを作成
-    #    - ControllerはViewから呼ばれ、UseCaseを起動する
-    controller = TodoController(use_case)
+    #    - Viewから呼ばれ、Use Case を起動する
+    controller = CheckOutBookController(use_case)
 
     # 6. Viewを作成
-    #    - Viewはユーザーとやり取りし、結果を表示する最前線
+    #    - 人間と会話する最前線
     view = ConsoleView(controller, view_model)
 
-    # 7. 実行開始
-    #    - Viewに制御を渡す
+    # 7. アプリ開始
     view.run()
 
 
@@ -159,33 +177,43 @@ if __name__ == "__main__":
 
 ## 🌱 実際に動かすとこうなるイメージ
 
-1. アプリが起動すると `view.run()` が呼ばれる
-2. ユーザーに
-   「追加するTODOのタイトルを入力してください: 」
-   と聞かれる
-3. 入力した文字列が Controller → UseCase → Repository へ流れる
-4. Todoが保存され、PresenterがViewModelを更新する
-5. Viewが `render()` を呼んで、例のメッセージを表示する
+1. アプリが起動すると `view.run()` が呼ばれます
+2. コンソールで聞かれます：
+   「貸し出す本のIDを入力してください: 」
+   「貸し出す会員のIDを入力してください: 」
+3. あなたが `1` と `2` を入力すると…
 
-   * 例：
-     `✅ タスク『買い物に行く』 (ID: 1) を追加しました。`
+   * Controller → Use Case → Repository の順に処理が流れ、
+   * 本が「貸出中」に更新され、
+   * 新しい Loan が登録され、
+   * Presenter が返却期限つきのメッセージを組み立てて ViewModel に書きこみます
+4. View がその ViewModel をそのまま表示します👇
 
-この一連の動きに、WebフレームワークもDBもまだいりません。
-それでも「クリーンアーキテクチャとしての依存方向」はすでに完成しています。
+例：
+
+```text
+--- 処理結果 ---
+貸出処理が完了しました。
+  書籍: 『クリーンアーキテクチャ』
+  会員: Alice様
+  返却期限: 2025年10月27日
+----------------
+```
+
+（※日付は `Loan` Entity が「貸出日＋14日」で計算するビジネスルールでしたね 📅）
 
 ---
 
-## 🤔 main.py にロジックを書かないのはなぜ？
+## 🤔 なぜ `main.py` にビジネスロジックを書いてはいけないの？
 
-`main.py` は「結線する場所」です。
-ここにビジネスロジックを混ぜると、依存関係が壊れていきます。
+`main.py` は「配線する場所」、いわゆる Composition Root です。
+ここに「貸出できるか判定する処理」などを書いてしまうと、せっかく分離したレイヤーが一気にごちゃまぜになります。
 
-* `main.py` はいちばん外側の層なので、内側のものは全部importしてOK
-* 逆は絶対にNG
+* `main.py` はいちばん外側の層だから、内側（core）も外側（interface_adapters）も import してOK。
+* でも逆方向はNG。
+  たとえば Use Case（core/usecase/...）が `main.py` を import したら設計崩壊です。
 
-  * たとえばUseCaseが `main.py` を import してしまうと設計崩壊
-
-この「外側で束ねる」「内側は束ねられるだけ」という関係が、システムの寿命を大きく伸ばします。
+この「外側が内側を束ねる／内側は外側を知らない」という非対称性こそが、クリーンアーキテクチャの強みです。
 
 ---
 
@@ -194,17 +222,18 @@ if __name__ == "__main__":
 > mainは「配線の場」。ロジックは書かない。
 > あなたのアプリはここで初めて「動く」。
 
-* main.pyは、各層のオブジェクト同士を接続する責務だけを持つ
-* main.pyはもっとも外側なので、インフラ層を含む全ての実装詳細を知っていてよい
-* UseCase・Entity側はmain.pyを一切知らない（ここが本当に大事）
+* `main.py` は各層のオブジェクト同士を接続するだけ。
+* アプリの依存関係をここで初めて具現化する。
+* ビジネスルールは core 側に閉じ込める。ここに持ち込まない。
 
 ---
 
-## 🎉 ここまででできること
+## 🎉 ここまででできたこと
 
-* クリーンアーキテクチャの各レイヤーが、理論だけでなく**実際のPythonファイルとしてすべて揃った**
-* それらがどう依存しているか
-  （内側を守り、外側を差し替える設計）
-  が実感できた
-* `python main.py` で動く最低限のTodoアプリの骨格が完成した
+* クリーンアーキテクチャの全レイヤーが、図書館の貸出ドメインに沿ってフルに揃った 📚
+* それぞれの責務が分離されたまま、`python main.py` で実際に動くところまで到達した
+* Webフレームワークも本物DBもまだ使っていないのに、
+  「会員が本を借りる」というリアルな業務フローをすでに表現できている
 
+次のステップでは、この配線を保ったまま、UIをFastAPIに差し替えたり、ストレージをPostgreSQLに差し替えたりしていけます。
+それができるのは、ここまでのレイヤー分離が正しく守られているからです 👍
