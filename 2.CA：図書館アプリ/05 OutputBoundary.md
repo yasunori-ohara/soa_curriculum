@@ -1,4 +1,4 @@
-# 04 Output Boundary
+# 05 Output Boundary
 
 # 📤 Output Boundary
 ### `core/usecase/boundary/output_boundary.py`

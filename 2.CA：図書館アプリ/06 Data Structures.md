@@ -1,4 +1,4 @@
-# 05 Data Structures (DTO / ViewModel)
+# 06 Data Structures (DTO / ViewModel)
 
 # 📦 Data Structures
 ### `core/usecase/boundary/dto.py`

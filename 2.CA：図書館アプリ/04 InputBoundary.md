@@ -1,4 +1,4 @@
-# 03 Input Boundary
+# 04 Input Boundary
 
 # 🚪 Input Boundary
 ### `core/usecase/boundary/input_boundary.py`

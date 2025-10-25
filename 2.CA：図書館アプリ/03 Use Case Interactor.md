@@ -1,4 +1,4 @@
-# 02 Use Case Interactor
+# 03 Use Case Interactor
 
 # 👨‍🏫 Use Case
 ### `core/usecase/interactor/check_out_book.py`
