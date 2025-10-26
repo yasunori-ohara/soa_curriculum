@@ -1,4 +1,4 @@
-# 07 Presenter
+# 04 Presenter
 
 ### `interface_adapters/presenter.py`（`VendingMachinePresenter`）
 
@@ -21,7 +21,7 @@ Presenter は、ユースケースの実行結果を「そのまま人に見せ�
 重要なのは、Presenter 自身は画面に表示しません。
 Presenter はあくまで「表示用データを準備する担当者」であり、実際にそれをユーザーに提示するのは View の責務です。
 
----
+![クリーンアーキテクチャ](../クリーンアーキテクチャ.png)
 
 ## 📂 ファイルの配置
 
