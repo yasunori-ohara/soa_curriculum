@@ -1,168 +1,322 @@
 # 08 View
 
-# 📺 View : adapters/view.py
+# 📺 View : `vending_machine/interface_adapters/view_console.py`
 
-UI層の最後にして、ユーザーとの直接の接点となる`ConsoleView`について解説します。
+いよいよ一番ユーザー寄りの層、`View` です。
+この章ではコンソールUI（ターミナル上の入出力）を例にして、`ConsoleView` を実装します。
 
-## 🎯 このクラスの役割
+`ConsoleView` は自販機にとっての「ボタンと小さな画面」。
+ユーザーが押した操作を受け取り（入力）、結果メッセージを表示します（出力）。
 
-`ConsoleView`は、ユーザーが直接目にし、操作するユーザーインターフェース（UI）そのものです。
+つまり責務はこの2つだけです👇
 
-このクラスの責務は、大きく分けて2つです。
+1. 🧑‍💻 ユーザーからの操作（「A1ください」「100円入れる」など）を受け取る
+   → `Controller`に伝える
 
-1. *表示（Output）*: `Presenter`によって準備された`ViewModel`のデータを、画面（今回はコンソール）に具体的に描画する。
-2. *入力（Input）*: ユーザーからのキーボード入力などを受け付け、その操作を`Controller`に伝える。
+2. 🖥 表示すべきメッセージを画面に出す
+   → `Presenter`が準備した `ViewModel` の内容をそのまま出す
 
-`View`は、アプリケーションの他の部分がどうなっているかを知る必要はありません。ただ、与えられた設計図（`ViewModel`）通りに家を建て、住人（ユーザー）からの要望を管理人（`Controller`）に伝えるだけの、純粋な「窓口」です。
+`ConsoleView` は、ビジネスルールもハードウェアの扱いも知りません。
+ただ橋渡しをする「窓口」です。
 
 ![クリーンアーキテクチャ](../クリーンアーキテクチャ.png)
 
-## ✅ このクラスにあるべき処理
+---
 
-⭕️ 含めるべき処理の例:
+## 🎯 View はどこに属しているの？
 
-- `print()`や`input()`など、具体的なUI技術を直接扱うコード。
-- `ViewModel`のデータを読み取って、画面に表示するロジック。
-- ユーザーの操作に応じて、`Controller`のメソッドを呼び出すこと。
+フォルダ構成の中では、`View` は `interface_adapters` フォルダに入ります。
 
-❌ 含めてはいけない処理の例:
+```text
+vending_machine/
+├─ domain/
+│   ├─ entities.py             # Item / PaymentManager など（純粋なビジネスルール）
+│   └─ errors.py               # ドメイン固有の例外
+│
+├─ usecase/
+│   ├─ dto.py                  # InputData / OutputData / ViewModel
+│   ├─ boundaries.py           # UseCaseが外部に求める契約
+│   ├─ select_item_usecase.py  # 商品購入ユースケース
+│   └─ insert_coin_usecase.py  # コイン投入ユースケース（後で紹介）
+│
+├─ interface_adapters/
+│   ├─ controller.py           # 入力を受けてUseCaseを呼ぶ（受付係）
+│   ├─ presenter.py            # UseCaseの結果→ViewModel（翻訳係）
+│   ├─ view_console.py         # ← いまここ（画面そのもの）
+│   ├─ data_access.py          # 在庫リポジトリのインメモリ実装
+│   └─ hardware_adapter.py     # ハードウェア操作（printでシミュレート）
+│
+└─ main.py                     # 全部を配線して起動する場所
+```
 
-- ビジネスロジック（`UseCase`の責務）。
-- 表示用データの整形ロジック（`Presenter`の責務）。
-- データベースやハードウェアに関する知識。
+この図でいうと、`View` は最も外側の世界＝ユーザーと話す担当です。
+でもビジネスルール（「買えるか？」「在庫あるか？」）は内側に聞きに行きます。直接決めません。
 
-## 💻 ソースコードの詳細解説
+---
+
+## ✅ View がやっていいこと / ダメなこと
+
+⭕ やっていいこと
+
+* `print()` / `input()` のような画面・入力デバイス操作
+* ユーザー入力に対応して、`Controller` のメソッドを呼ぶ
+* `ViewModel`（Presenterが最後に用意した表示用オブジェクト）を読んで、画面に出す
+
+❌ やってはいけないこと
+
+* 在庫があるか、支払いが成立しているか、といった「ビジネス判断」
+  → それは `UseCase` と `Entity` の責務
+* お釣りの金額やメッセージの文章を考える
+  → それは `Presenter` の責務
+* モーター回転やコイン払い出しなどハード制御
+  → それは HardwareAdapter の責務
+
+> View のモットーは「聞いて、伝えて、映すだけ」。
+> かしこくならないことが大事です。
+
+---
+
+## 💻 コード（`view_console.py`）
 
 ```python
-# adapters/view.py
+# vending_machine/interface_adapters/view_console.py
 
-# ControllerとViewModelは同じAdapters層にいる仲間
-from .controller import VendingMachineController
-from application.data_structures import VendingMachineViewModel
-from domain.entities import PaymentManager
+# ControllerとViewModelはどちらも interface_adapters / usecase の世界にいる仲間
+from vending_machine.interface_adapters.controller import VendingMachineController
+from vending_machine.usecase.dto import VendingMachineViewModel
+from vending_machine.domain.entities import PaymentManager
+
 
 # -----------------------------------------------------------------------------
-# View
+# ConsoleView
 # - クラス図の位置: View
-# - 同心円図の位置: Adapters (外側の円)
+# - 同心円図の位置: interface_adapters（最も外側の円のひとつ）
+#
+# 役割:
+#   - ユーザーからの入力を受けて Controller に伝える
+#   - Presenterが書き込んだ ViewModel の内容を画面に表示する
+#
+# つまり人間とアプリケーションの橋渡し係。ロジックは持たない。
 # -----------------------------------------------------------------------------
 class ConsoleView:
-    """ユーザーとの直接的なやり取り（入力受付・画面表示）を担当する。"""
-    def __init__(self, controller: VendingMachineController, view_model: VendingMachineViewModel):
+    """
+    コンソール版の自動販売機UI。
+
+    - 入力担当:
+        ユーザーに「何をしますか？」と尋ねて、押された操作をControllerに伝える。
+    - 出力担当:
+        Presenterがまとめた ViewModel の内容をそのままprintする。
+    """
+
+    def __init__(
+        self,
+        controller: VendingMachineController,
+        view_model: VendingMachineViewModel,
+    ):
         """
-        [依存先の定義]
-        指示を出す相手であるControllerと、表示内容の元となるViewModelを保持する。
+        [依存性の注入]
+
+        controller:
+            ユーザー操作をアプリケーションに伝えるための窓口（受付係）。
+            ViewはControllerを通してしかUseCaseに触れない。
+
+        view_model:
+            Presenterが更新してくれる「表示用の最新メッセージの置き場」。
+            Viewはこれを読むだけでよい。自分で文面は作らない。
         """
         self._controller = controller
         self._view_model = view_model
 
+        # 自販機の現金投入状態を表すエンティティ。
+        # ここでは、1回のアプリ実行中ずっと使い回す想定。
+        # （100円入れて、さらに100円入れて、最後に購入…という流れを成立させるため）
+        self._payment_manager = PaymentManager()
+
     def run(self):
         """
-        [入力処理]
-        自動販売機のメインの操作ループを実行する。
-        """
-        # 取引の状態を管理するPaymentManagerを生成してループを開始
-        payment_manager = PaymentManager()
+        [UIメインループ]
+        - ユーザーに操作メニューを提示する
+        - 入力を受け付ける
+        - Controllerを呼ぶ
+        - Presenterが整えたメッセージ(ViewModel)を表示する
 
+        無限ループで動き続け、'q' を押すと終了する想定。
+        """
         while True:
-            print("\\n--------------------")
-            print(f"現在の投入金額: {payment_manager.current_amount}円")
-            print("操作を選んでください: [c: コイン投入, s: 商品選択, r: お釣り銭返却, q: 終了]")
-            action = input("> ").lower()
+            print("\n--------------------")
+            print(f"現在の投入金額: {self._payment_manager.current_amount}円")
+            print("操作を選んでください:")
+            print("  c: コイン投入")
+            print("  s: 商品を購入する")
+            print("  r: お釣りを返却する")
+            print("  q: 終了する")
+
+            action = input("> ").strip().lower()
 
             try:
-                if action == 'c':
-                    coin_str = input("投入する硬貨（10, 50, 100, 500）: ")
-                    # Viewは「コインが投入された」というイベントをControllerに伝える
-                    self._controller.insert_coin(int(coin_str), payment_manager)
+                if action == "c":
+                    # コイン投入イベント
+                    coin_str = input("投入する硬貨（10 / 50 / 100 / 500）: ").strip()
+                    coin = int(coin_str)
 
-                elif action == 's':
-                    slot_id = input("購入する商品のスロットID: ")
-                    # Viewは「商品が選択された」というイベントをControllerに伝える
-                    self._controller.select_item(slot_id, payment_manager)
+                    # Viewは「ユーザーが100円入れましたよ」という事実だけをControllerに伝える。
+                    self._controller.insert_coin(coin)
 
-                elif action == 'r':
-                    # Viewは「お釣り銭返却が要求された」というイベントをControllerに伝える
-                    self._controller.return_change(payment_manager)
+                elif action == "s":
+                    # 商品購入イベント
+                    slot_id = input("購入する商品のスロットID (例: A1): ").strip()
 
-                elif action == 'q':
+                    # Viewは「ユーザーがA1を買いたいと言ってます」という事実だけをControllerに伝える。
+                    self._controller.select_item(slot_id)
+
+                elif action == "r":
+                    # お釣り返却イベント
+                    self._controller.return_change()
+
+                elif action == "q":
                     print("ご利用ありがとうございました。")
                     break
+
                 else:
-                    self._view_model.display_text = "無効な操作です。"
+                    # ここはUIロジック（プレゼンテーションロジック）。
+                    # ビジネスではなく「どのキーが押されたか」の話なので、Viewが持ってよい。
+                    self._view_model.display_text = "無効な操作です。c/s/r/q から選んでください。"
 
             except ValueError:
-                self._view_model.display_text = "エラー: 不正な入力です。"
+                # 例: ユーザーが "abc" と入力して int() に失敗した など
+                self._view_model.display_text = "エラー: 入力の形式が正しくありません。"
             except Exception as e:
+                # 想定外エラーも、最終的にはユーザーに見せるメッセージに落とす
+                # ここは「UIとしてのハンドリング」なのでViewに置いてOK
                 self._view_model.display_text = f"予期せぬエラー: {e}"
 
-            # 処理結果を表示
+            # Presenter or このViewがセットした display_text の内容を描画
             self.render()
 
     def render(self):
         """
         [表示処理]
-        ViewModelの現在の状態を元に画面を描画する。
+        Presenterによって更新されたViewModelの内容をそのまま表示する。
+        Viewは文面を組み立てない。あくまで「表示するだけ」。
         """
-        print(f"ディスプレイ: {self._view_model.display_text}")
-
+        print(f"\nディスプレイ: {self._view_model.display_text}")
 ```
 
-- `run()`: 自動販売機のメインループです。ユーザーの入力に応じて、対応する`Controller`のメソッドを呼び出します。`View`は、`Controller`の先に何があるか（`UseCase`や`Entity`）を一切知りません。
-- `render()`: `ViewModel`の`display_text`プロパティをコンソールに出力するだけの単純な作業です。`Presenter`が成功メッセージをセットした場合も、`View`自身が入力エラーメッセージをセットした場合も、このメソッドが最終的な表示を担当します。
+---
 
-## 💡 ユニットテストでViewの正しさを証明する
+### 👀 あれ？ `PaymentManager` は使ってないように見えるけど…？
 
-`View`のテストでは、実際の`input()`や`print()`を動かすのではなく、「ユーザーが特定の入力を行ったら、`Controller`が正しく呼ばれるか」を検証します。
+ここで少しだけ構成の話をします。
+
+* `PaymentManager` は「今いくら投入されてるか？」を覚えておくエンティティです。
+* これはユーザーがコインを入れるたびに更新され、購入後や返金後にリセットされます。
+* 第三巡の設計では、`PaymentManager` は **アプリ起動中に生きている1つの状態** として扱うことを想定しています。
+
+どこがそれを持つべきか？は複数パターンがあります：
+
+1. Controllerが保持して UseCaseに渡す
+2. Viewが保持して Controllerに見せる
+3. main.py で作って両方に渡す（依存注入）
+
+この教材では最終的に (3) を採用します。
+つまり、`main.py` の Composition Root で `PaymentManager` を1個作り、
+ControllerにもViewにも共有させる形にするとスッキリします。
+
+このあと `main.py` の章で、この配線（依存注入）をはっきり書きます。
+
+---
+
+## 🧪 View のテスト
+
+`View` のテストは少し特殊です。
+`input()` と `print()` が生で入っているからです。
+そこは `unittest.mock.patch` を使って差し替えます。
+
+ゴールは「ユーザーがこう入力したら、Controllerのこのメソッドが呼ばれるか？」です。
+ビジネス結果（在庫が減ったか、お釣りが返ったか）までは見ません。
+それはUseCaseやPresenterのテストでやれば十分なので、ここは責務をしぼります。
 
 ```python
-# tests/adapters/test_view.py の例
+# tests/interface_adapters/test_view_console.py
+
 from unittest.mock import patch, MagicMock
+from vending_machine.interface_adapters.view_console import ConsoleView
+from vending_machine.usecase.dto import VendingMachineViewModel
 
-def test_viewはユーザーのコイン投入入力をcontrollerに正しく伝える():
-    # 1. Arrange (準備): ControllerとViewModelをモック（偽物）にする
-    mock_controller = MagicMock()
-    view_model = VendingMachineViewModel()
 
-    # 2. Act (実行): 'input'関数を偽の入力で置き換えて実行
-    view = ConsoleView(mock_controller, view_model)
-    # ユーザーが'c', '100', 'q'と入力したと仮定する
-    with patch('builtins.input', side_effect=['c', '100', 'q']):
-        view.run()
+def test_cが押されたら_controllerのinsert_coinが呼ばれる():
+    # 1. Arrange
+    fake_controller = MagicMock()
+    vm = VendingMachineViewModel()
 
-    # 3. Assert (検証)
-    # 意図: 「Controllerのinsert_coinが、100という値で呼ばれていること」をテスト
-    mock_controller.insert_coin.assert_called_once()
-    # 呼び出された際の2番目の引数（coin）が100であることを確認
-    assert mock_controller.insert_coin.call_args[0][0] == 100
+    # Viewを作成
+    view = ConsoleView(
+        controller=fake_controller,
+        view_model=vm,
+    )
 
+    # 2. Act
+    # ユーザーが:
+    #   "c" (コイン投入モードに入る)
+    #   "100" (100円投入)
+    #   "q" (終了)
+    with patch("builtins.input", side_effect=["c", "100", "q"]):
+        with patch("builtins.print"):  # print汚染を抑える
+            view.run()
+
+    # 3. Assert
+    # Controller.insert_coin() が 100 で呼ばれたことを確認
+    fake_controller.insert_coin.assert_called_once_with(100)
 ```
 
-## 🐍 PythonとC言語の比較（初心者の方へ）
+ポイント：
 
-- Python (オブジェクト指向): `ConsoleView`というクラスが、UIの状態（`_view_model`）と振る舞い（`run`, `render`）をまとめて管理します。
-- C言語 (手続き型): 通常、`main`関数内の`while`ループがUIの主役になります。ループの中で`scanf`で入力を受け付け、`if`文で入力を判定し、対応するビジネスロジック関数を呼び出し、`printf`で結果を表示する、という処理がすべて一箇所に集まりがちです。
+* Viewの責務テストに集中している
+* PresenterやUseCaseの中身はモック化して気にしない
+* 「正しいレイヤーで正しい仕事をしてるか？」だけを見る
 
-## 🛡️ このクラスの鉄則
+---
 
-このクラスは、ロジックを持たず、単純な作業に徹します。
+## 🐍 Python と 🔧 C言語での違い（イメージ）
+
+* Python + クリーンアーキテクチャ版：
+
+  * `View` は「入出力の担当」だけ
+  * `Controller` は「ユースケースを呼ぶ受付」
+  * `UseCase` は「ビジネスの流れ」
+  * `HardwareAdapter` は「物理的にガコンと動く手足」
+
+* Cでありがちな自販機コード：
+
+  * `while(1)`のループの中で
+
+    * ボタン読み取り
+    * 在庫チェック
+    * お金チェック
+    * モーター回転
+    * LED表示
+      を全部やる
+  * → 1ファイルが巨大化する
+  * → 一部分だけテストするのが難しい
+  * → ハードが変わると全部書き直し
+
+今回の分割は、「現場での変更コスト」と「テストのしやすさ」を両立するための現実的なやり方です。
+
+---
+
+## 🛡️ View層の鉄則
 
 > 愚直であれ (Be Dumb)
-> 
-- `View`はビジネス上の判断を一切行いません。ただ、「ユーザーの操作をControllerに伝え、ViewModelを画面に表示する」という2つの単純な責務だけを果たします。
-- このクラスを「おバカさん」に保つことで、UIのデザイン変更（例：コンソールからタッチパネルディスプレイへ）があったとしても、影響範囲をこの`View`と`Presenter`だけに限定することができます。
 
-## ❓ Q\&A
+* Viewは「どのキーが押されたか」を判断して Controller に伝える
+* Presenterが用意した文をそのまま出す
+* それ以上の“頭の良さ”を持たないことが、長生きするUIの秘訣
 
-### **Q. `View`にある `if action == 'c':` という分岐はロジックではないのですか？**
+ここまでで、
 
-**A.** 素晴らしい質問です。これはロジックですが、`View`が持つべき**プレゼンテーションロジック**であり、`View`が持ってはいけない**ビジネスロジック**とは区別されます。
+* Entity（ビジネスの芯）
+* UseCase（業務フロー）
+* Adapter群（Controller / Presenter / Hardware / View）
+  がそろいました。
 
-- *ビジネスロジック (Business Logic)*
-    - *役割*: アプリケーションの`本質的なルール`や`ドメイン知識`を扱うロジック。（例：「投入金額は商品の価格以上か？」）
-    - *担当者*: `Entity` と `UseCase`
-- *プレゼンテーションロジック (Presentation Logic)*
-    - *役割*: ユーザーとの`やり取り`や`表示`を制御するためのロジック。（例：「ユーザーが'c'と入力したら、コイン投入の処理に進む」）
-    - *担当者*: `View` と `Presenter`
 
-`View`にある`if`文は、「ユーザーの『c』というキー入力を、『コイン投入』というUI上のアクションに変換する」という、まさに`View`が担当すべきプレゼンテーションロジックなのです。テレビのリモコンが「音量＋」ボタンが押されたら「音量を上げる信号を送る」と判断するのと同じで、テレビ本体がどうやって音量を上げるか（ビジネスロジック）は知りません。この責務の分離こそが、クリーンアーキテクチャの核心です。

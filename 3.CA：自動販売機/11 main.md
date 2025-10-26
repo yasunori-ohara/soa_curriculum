@@ -1,133 +1,276 @@
-# 11 main
+# 11 Main（Composition Root）
 
-# 🚀 Composition Root : [main.py](http://main.py/)
+# 🧠 すべてをつなぐ「依存注入」の実践
 
-いよいよ最後のファイル、これまで作ってきた全ての部品を組み立てて命を吹き込む`main.py`の解説です。
+これまでに構築した各レイヤーは、
+**すべてが“抽象（インターフェース）”を介して疎結合**に保たれています。
+そのため、実際に動かすには「どの実装を使うのか」を明示的に“接続”する必要があります。
 
-## 🎯 このファイルの役割
+その接続こそが `main.py` の役割です。
+クリーンアーキテクチャでは、このファイルを **Composition Root（合成の根）** と呼びます。
 
-`main.py`は、これまで作ってきた全ての部品（クラス）を組み立てて一つのアプリケーションとして完成させ、起動スイッチを入れる「組立工場」の役割を果たします。
+---
 
-クリーンアーキテクチャでは、この場所を\_Composition Root\_と呼びます。ここは、アプリケーション全体で*唯一*、具体的な実装クラス（`VendingMachinePresenter`, `InMemoryItemDataAccess`, `ConsoleHardwareAdapter`など）が互いを直接知ることを許された場所です。
+## 🎯 この章の目的
 
-ここで全ての部品を配線（*依存性の注入 / Dependency Injection*）することで、他の全てのクラス（`UseCase`や`Controller`など）は、お互いの具体的な実装を知らない「クリーン」な状態を保つことができます。
+* 各コンポーネントを手動で「依存注入（DI）」してつなぐ
+* クリーンアーキテクチャが“動く構造”であることを確認する
+* 層の依存方向（内→外）は崩れていないことを確認する
 
 ![クリーンアーキテクチャ](../クリーンアーキテクチャ.png)
 
-## ✅ このファイルにあるべき処理
+---
 
-⭕️ 含めるべき処理の例:
+## ✅ main.py の役割
 
-- 全ての具体的な実装クラスのインスタンス化（オブジェクト生成）。
-- あるクラスのインスタンスを、別のクラスのコンストラクタ（`__init__`）に渡すことによる、依存性の注入（DI）。
-- アプリケーションの最初の処理（今回は`view.run()`）を呼び出すこと。
+`main.py` は、**アプリケーションの起動地点**です。
+責務はただ1つ：
 
-❌ 含めてはいけない処理の例:
+> 「どの実装を使うのか」を決め、全てのクラスをつないで動かすこと。
 
-- ビジネスロジック、データ変換ロジック、UIの描画ロジックなど。このファイルの責務は、あくまで\_組み立て\_に専念します。
+ここにはビジネスロジックもUI制御も書きません。
+ひたすら「配線（wiring）」だけに集中します。
 
-## 💻 ソースコードの詳細解説
+---
 
-（※この`main.py`は、まだリファクタリングを適用する前の、全ての部品を手動で組み立てるバージョンです。）
+## 💻 コード全体（基本版）
 
 ```python
-# main.py
+# vending_machine/main.py
+# -----------------------------------------------------------------------------
+# 🎬 Composition Root
+# -----------------------------------------------------------------------------
+# ここで全ての実装をnewして接続し、アプリケーションを起動する。
+# クリーンアーキテクチャでは「外側」が「内側」に依存するため、
+# 依存の向きは main.py から一方向に注入される。
+# -----------------------------------------------------------------------------
+
+from vending_machine.domain.entities import PaymentManager
+from vending_machine.interface_adapters.controller import VendingMachineController
+from vending_machine.interface_adapters.presenter import VendingMachinePresenter
+from vending_machine.interface_adapters.view_console import ConsoleView
+from vending_machine.interface_adapters.data_access import InMemoryItemDataAccess
+from vending_machine.interface_adapters.hardware_adapter import ConsoleHardwareAdapter
+from vending_machine.usecase.insert_coin_usecase import InsertCoinUseCase
+from vending_machine.usecase.select_item_usecase import SelectItemUseCase
 
 # -----------------------------------------------------------------------------
-# main.py
-# - クラス図の位置: (図の外) 全ての部品を組み立てる責任を持つ
-# - 同心円図の位置: (円の外) アプリケーションのエントリーポイント
+# 🧩 各コンポーネントの生成
 # -----------------------------------------------------------------------------
-
-# --- Adapters層の具体的な実装クラス ---
-from adapters.presenter import VendingMachinePresenter
-from adapters.controller import VendingMachineController
-from adapters.view import ConsoleView
-from adapters.data_access import InMemoryItemDataAccess
-from adapters.hardware import ConsoleHardwareAdapter
-
-# --- UseCase層の具体的な実装クラス ---
-# （話を簡単にするため、ここではSelectItemUseCase以外のUseCaseも
-#   同じファイルにあると仮定します）
-from application.use_cases import (
-    SelectItemUseCase, InsertCoinUseCase, ReturnChangeUseCase
-)
-
-# --- 必要なデータ構造 ---
-from application.data_structures import VendingMachineViewModel
-
 def main():
-    """アプリケーションのすべての部品を組み立て、起動する"""
-    print("--- 1. 自動販売機システムの部品を組み立てます ---")
+    # --- 永続化層（データアクセス） ---
+    item_repository = InMemoryItemDataAccess()
 
-    # [ViewModel] を生成
-    view_model = VendingMachineViewModel()
+    # --- ドメイン層の状態オブジェクト ---
+    payment_manager = PaymentManager()
 
-    # [Presenter] を生成
-    presenter = VendingMachinePresenter(view_model)
-
-    # [Data Access] を生成
-    item_data_access = InMemoryItemDataAccess()
-
-    # [Hardware Adapter] を生成
+    # --- 外部インターフェース（ハードウェア） ---
     hardware = ConsoleHardwareAdapter()
 
-    # [Use Cases] をそれぞれ生成
-    # 依存するPresenter, DataAccess, Hardwareを注入（DI）
-    select_item_uc = SelectItemUseCase(
-        presenter=presenter,
-        item_repository=item_data_access,
-        hardware=hardware
-    )
-    insert_coin_uc = InsertCoinUseCase(presenter=presenter)
-    return_change_uc = ReturnChangeUseCase(presenter=presenter, hardware=hardware)
+    # --- プレゼンター & ViewModel ---
+    presenter = VendingMachinePresenter()
 
-    # [Controller] を生成
-    # 依存する全てのUseCaseを注入（DI）
+    # --- ユースケース層 ---
+    insert_coin_use_case = InsertCoinUseCase(presenter, payment_manager)
+    select_item_use_case = SelectItemUseCase(
+        presenter,
+        item_repository,
+        hardware,
+        payment_manager
+    )
+
+    # --- コントローラ層 ---
     controller = VendingMachineController(
-        select_item_use_case=select_item_uc,
-        insert_coin_use_case=insert_coin_uc,
-        return_change_use_case=return_change_uc
+        insert_coin_use_case=insert_coin_use_case,
+        select_item_use_case=select_item_use_case
     )
 
-    # [View] を生成
-    # 依存するControllerと、共有するViewModelを注入（DI）
-    view = ConsoleView(controller, view_model)
+    # --- View層（UI） ---
+    view = ConsoleView(controller=controller, presenter=presenter)
 
-    print("--- 2. 組み立て完了、アプリケーションを実行します ---\\n")
-
-    # 全ての配線が完了したViewインスタンスを使って、アプリケーションの実行を開始
+    # --- 実行開始 ---
     view.run()
 
+
+# -----------------------------------------------------------------------------
+# 🚀 エントリポイント
+# -----------------------------------------------------------------------------
 if __name__ == "__main__":
     main()
-
 ```
 
-`main`関数の中では、一切のビジネスロジックが実行されていない点に注目してください。行われているのは、依存関係の連鎖を解決するためのオブジェクト生成と注入だけです。
+---
 
-1. まず、依存される側である`ViewModel`, `Presenter`, `DataAccess`, `Hardware`を生成します。
-2. 次に、それらを必要とする複数の`UseCase`をそれぞれ生成します。
-3. `Controller`に、全ての`UseCase`を注入します。
-4. 全ての部品が正しく接続された`view`オブジェクトが完成したら、最後に`view.run()`を呼び出してアプリケーションを起動します。
+## 🧩 main.py の構造解説
 
-## 💡 ユニットテストは不要、だが...
+### ① ドメインとユースケースは「受け取る側」
 
-`main.py`自体には、ロジックがないためユニットテストは書きません。
+`UseCase`は自分で何も`new`しません。
+必要なリポジトリやハードウェアは**外から注入**されます。
 
-このファイルの正しさは、**アプリケーション全体がエラーなく起動し、意図通りに動作すること**で証明されます。このような、複数のコンポーネントを結合して行うテストを「インテグレーションテスト（結合テスト）」と呼びます。まさに`main.py`を実行することが、最もシンプルなインテグレーションテストと言えます。
+これが **依存性逆転の原則（DIP）** の実践です。
 
-## 🐍 PythonとC言語の比較（初心者の方へ）
+```python
+select_item_use_case = SelectItemUseCase(
+    presenter, item_repository, hardware, payment_manager
+)
+```
 
-- Python (オブジェクト指向): `main`関数内で各クラスのインスタンスを動的に生成し、それを他のクラスのコンストラクタに渡すことで、柔軟に依存関係を組み立てています。
-- C言語 (手続き型): `main`関数がすべての中心となり、各機能に対応する関数を直接呼び出す形が基本です。依存性の注入のようなことを行うには、関数の引数として関数ポインタを渡したり、グローバルな構造体に情報を詰め込んで初期化したり、といった工夫が必要になり、コードが複雑になりがちです。
+→ UseCase は「抽象」を受け取り、具体的な実装を知らない。
+（DBを変えても、UseCaseの中身は変わらない）
 
-## 🛡️ このファイルの鉄則
+---
 
-このファイルは、他の全てのクラスをクリーンに保つための、重要な役割を担います。
+### ② Controller と Presenter の接続
 
-> すべてを知り、すべてを組み立て、そして仕事は最初に任せよ。 (Know everything, assemble everything, then delegate the first task.)
-> 
-- この`main.py`は、アプリケーションの具体的な実装クラスをすべて知っている、唯一の「汚れる」場所です。
-- この場所が依存関係を一手に引き受けることで、他の全てのクラスはインターフェースにのみ依存する「クリーン」な状態を保つことができます。
-- 組み立てが終わったら、最初のきっかけ（`view.run()`）を与えるだけで、あとは他のクラスに仕事を任せます。
+Controller は UseCase に依存し、
+Presenter は ViewModel に出力を整えます。
+両者を繋ぐのも main.py の仕事です。
+
+```python
+controller = VendingMachineController(
+    insert_coin_use_case, select_item_use_case
+)
+presenter = VendingMachinePresenter()
+```
+
+Presenter を単一インスタンスにしておくことで、
+複数のUseCaseが共通の ViewModel を更新できる構造になります。
+
+---
+
+### ③ View はアプリの“最外層”
+
+View は入力をControllerに渡し、
+Presenterが用意したViewModelを表示します。
+UIループもここに存在します。
+
+```python
+view = ConsoleView(controller=controller, presenter=presenter)
+view.run()
+```
+
+---
+
+## 🧭 実行の流れ（テキスト図）
+
+```
+[ユーザー]
+   ↓ 入力（コイン投入や商品選択）
+[View]
+   ↓ 呼び出し
+[Controller]
+   ↓ 呼び出し
+[UseCase]
+   ↓ 処理依頼
+[Repository / Hardware]
+   ↓
+   結果を Presenter に渡す
+[Presenter]
+   ↓ 整形
+[ViewModel → View]
+   ↓ 出力
+[ユーザーに結果表示]
+```
+
+> Viewは「操作」と「表示」だけ、
+> UseCaseは「ビジネスロジック」だけ、
+> DataAccessやHardwareは「作業」だけを行う。
+>
+> そしてそれらを束ねるのが main.py です。
+
+---
+
+## ✅ main.py の責務まとめ
+
+| 区分   | 責務               |
+| ---- | ---------------- |
+| new  | 各クラスを生成する        |
+| wire | 依存関係を注入して接続する    |
+| run  | 最初のUI（View）を起動する |
+
+main.py はこれだけ。
+**ビジネスロジックを1行も書かない**のが最大の特徴です。
+
+---
+
+## 🧩 実行例（対話）
+
+```bash
+$ python vending_machine/main.py
+自動販売機へようこそ。
+コインを投入してください。
+> i 100
+現在の投入金額: 100円
+> s A1
+エラー: お金が足りません。
+> i 100
+現在の投入金額: 200円
+> s A1
+「お茶」が出てきました。お釣りは40円です。
+> q
+ありがとうございました！
+```
+
+---
+
+## 💡 発展編（Optional）
+
+リファクタリング章で紹介した改善案を適用する場合は、
+main.pyの配線も少しだけ変わります。
+
+### 変更例：PaymentManagerをリポジトリ化した場合
+
+```python
+from vending_machine.interface_adapters.data_access import (
+    InMemoryItemDataAccess,
+    InMemoryPaymentManagerAccess,
+)
+
+# ...
+item_repository = InMemoryItemDataAccess()
+pm_repository = InMemoryPaymentManagerAccess()
+
+select_item_use_case = SelectItemUseCase(
+    presenter, item_repository, hardware, pm_repository
+)
+insert_coin_use_case = InsertCoinUseCase(
+    presenter, pm_repository
+)
+```
+
+→ このように、PaymentManagerが“状態オブジェクト”ではなく
+“永続層の1データ”として扱われる構造に変わります。
+
+---
+
+## 🧠 まとめ
+
+| 層                 | クラス例                                                | 役割            |
+| ----------------- | --------------------------------------------------- | ------------- |
+| Domain            | `Item`, `PaymentManager`                            | ビジネスルールの中心    |
+| UseCase           | `SelectItemUseCase`                                 | アプリケーションの操作手順 |
+| InterfaceAdapters | `Controller`, `Presenter`, `DataAccess`, `Hardware` | 外部との接続点       |
+| Main              | `main.py`                                           | すべてをつなぐ構成ルート  |
+
+---
+
+## 🎓 学びのポイント
+
+* クリーンアーキテクチャは「newする場所を外に出す」思想
+* 依存方向は常に **内→外へ**（上位ルールは下位に依存しない）
+* `main.py` が唯一の“全てを知る場所”
+* 他のモジュールは全体を知らない（疎結合）
+
+---
+
+## 🚀 まとめの一文
+
+> **main.pyは、設計思想が「動く」瞬間。**
+
+ここまで作り上げた各層が、
+「依存方向」「責務分離」「抽象による制御逆転」という
+クリーンアーキテクチャの理論を、実際に**走るプログラムとして証明**します。
+
+おめでとうございます。
+あなたの自販機は、クリーンアーキテクチャで“動く”ようになりました。

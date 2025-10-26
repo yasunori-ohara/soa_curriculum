@@ -1,130 +1,252 @@
 # 05 Hardware Adapter
 
-# 🤖 Hardware Adapter : adapters/hardware.py
+# 🤖 Hardware Adapter
+### `vending_machine/interface_adapters/hardware_adapter.py`
 
-今回の題材で最も特徴的なアダプター、`Hardware Adapter`を解説します。
+`UseCase` は「商品を出して」「お釣り返して」と命令はしますが、
+実際にどうやってモーターを回すか・どうコインを返すかは知りません。
 
-`DataAccess`がデータベースとの接続を担当したように、この`HardwareAdapter`は物理的なハードウェアとの接続を担当します。`Presenter`の前にこちらを解説することで、`UseCase`が依存する部品がすべて揃い、UI層の理解がしやすくなります。
+その“現実の世界のやり方”を肩代わりするのが **Hardware Adapter** です。
 
-## 🎯 このファイルの役割
+このファイルでは、`usecase/boundaries.py` で宣言した
+`HardwareInterface` を、実際に動くクラスとして実装します。
 
-このファイルは、`boundaries.py`で定義された`HardwareInterface`を、具体的な技術（今回はコンソールへのシミュレーション出力）で実装するアダプターです。
+* UseCase視点：
+  「HardwareInterfaceっていう契約どおりに動いてくれるやつがいればいい」
 
-`UseCase`からの「スロットA1の商品を排出しろ」「30円のお釣りを返せ」といった抽象的なハードウェアへの指示を、コンソールの`print`文を使って「（ガコンッ！『お茶』を排出しました）」のように、物理的な動作をシミュレートする処理に変換します。
+* Adapter視点：
+  「その契約どおりに、実機・シミュレーション・テスト用など好きな形で振る舞います」
 
-`UseCase`という「頭脳」と、物理的な「手足」の間に立つ、「神経系」のような役割を果たします。
+この分離によって、
+**ビジネスロジック（買うという流れ）とハードウェア（どう動くか）が完全に独立**します。
 
 ![クリーンアーキテクチャ](../クリーンアーキテクチャ.png)
 
-## ✅ このクラスにあるべき処理
+---
 
-⭕️ 含めるべき処理の例:
+## 🎯 このファイルの役割
 
-- `HardwareInterface`で定義されたメソッドの具体的な実装。
-- 物理デバイスを制御するための低レベルなコード（例：モーターを制御するライブラリの呼び出し、シリアル通信など）。
-- 今回の例では、ハードウェアの動作をコンソールに表示するシミュレーションコード。
+* `HardwareInterface`（= UseCaseが期待しているインターフェース）を**実装する**
+* UseCaseから受け取った「抽象的な指示」を、**具体的な動きに変換する**
 
-❌ 含めてはいけない処理の例:
+今回の教材では、実機の代わりに `print()` を使って動作をわかりやすく可視化します。
+実務であれば、ここに本物のモーター制御や、コインメカとの通信処理などが入ります。
 
-- ビジネスロジック（`UseCase`の責務）。
-    - 例：「この商品に排出指示を出して良いか？」といった判断は行いません。ただ「排出しろ」という指示を忠実に実行するだけです。
+---
 
-## 💻 ソースコードの詳細解説
+## ✅ このクラスが“やっていい”こと／“やってはいけない”こと
+
+⭕ やっていいこと
+
+* モーターを回す／GPIOピンを叩く／シリアル通信するなど、物理的な制御の詳細
+* 今回の教材ではその代わりに `print()` で「排出しました」「お釣りを返しました」と表示する
+
+❌ やってはいけないこと
+
+* 「この商品、売っていいか？」の判断
+
+  * それは `Item` エンティティや `PaymentManager` が決めている
+* 「お金足りる？お釣りは？」の計算
+
+  * それは `PaymentManager` の仕事
+* 「在庫を減らす」などビジネスルール的な更新
+
+  * それは `Item.dispense()` の仕事
+* 画面表示用の文言生成（Presenterの仕事）
+
+> 🧠 合言葉：
+> **Adapterは「手足」。判断はしない。ただ実行する。**
+
+## 💻 フォルダ構成
+
+```text
+vending_machine/
+├─ domain/
+│   ├─ entities.py          # Item, PaymentManager など
+│   ├─ errors.py            # ドメインルール違反例外
+│
+├─ usecase/
+│   ├─ dto.py               # InputData / OutputData / ViewModel
+│   ├─ boundaries.py        # UseCaseが外部とやり取りする契約
+│   ├─ insert_coin_usecase.py
+│   └─ select_item_usecase.py
+│
+├─ interface_adapters/
+│   ├─ controller.py        # Controller（入力受付）
+│   ├─ presenter.py         # Presenter（出力整形）
+│   ├─ view_console.py      # CLIでの動作確認
+│   ├─ data_access.py       # 在庫リポジトリのインメモリ実装
+│   └─ hardware_adapter.py  # ハードウェア操作のコンソール版実装    <- いまここ
+│
+└─ main.py                  # Composition Root（全配線）
+
+```
+
+## 💻 コード（`hardware_adapter.py`）
 
 ```python
-# adapters/hardware.py
+# vending_machine/interface_adapters/hardware_adapter.py
 
-# 内側の世界の「境界」にのみ依存する
-from application.boundaries import HardwareInterface
+# UseCaseが定義した契約（HardwareInterface）をインポートする
+from vending_machine.usecase.boundaries import HardwareInterface
+
 
 # -----------------------------------------------------------------------------
-# Hardware Adapter
-# - クラス図の位置: Hardware (DataAccessなどと同じ外部実装)
-# - 同心円図の位置: Adapters (外側の円)
+# ConsoleHardwareAdapter
+# - 役割:
+#     UseCase からの「商品を排出して」「お釣りを返して」という
+#     抽象的な指示を、具体的な処理に変換する。
+#
+# - この教材では、実機ハードウェアの代わりに print() でシミュレートする。
+#   実務であればここに、GPIO制御やシリアル通信などの本物の処理が入る。
+#
+# - クリーンアーキテクチャ上の位置づけ:
+#     interface_adapters 層（最も外側の円の1つ）
 # -----------------------------------------------------------------------------
 class ConsoleHardwareAdapter(HardwareInterface):
     """
-    HardwareInterfaceの「コンソールシミュレーション」版実装。
-    物理デバイスの動作をprint文で模倣する。
+    HardwareInterface の具体的な実装（コンソール版）
+
+    「UseCaseの依頼を現実世界の動作に変える」のが責務。
+    ここでは print() によるメッセージ出力でそれを模倣する。
     """
+
+    def __init__(self):
+        # もし将来、ハードウェア制御用のドライバやポート番号など
+        # 具体的な依存があれば、ここで受け取って保持するようにする。
+        # 例: self.motor_driver = motor_driver
+        pass
 
     def dispense_item(self, slot_id: str):
         """
         [インターフェースの実装]
-        'dispense_item'という抽象的な要求を、
-        コンソールに排出メッセージを表示するという具体的な処理で実現する。
+        指定スロットの商品を物理的に排出する処理。
+
+        UseCaseからは「A1の商品を出して」といった抽象命令しか来ない。
+        それをここで具現化する。
+
+        slot_id:
+            どのスロットの商品を落とすかを示す識別子 (例: "A1")
         """
+        # ここでは実物のモーターの代わりにコンソール出力で表現している
         print(f"（ガコンッ！スロット {slot_id} の商品を排出しました）")
 
     def return_change(self, amount: int):
         """
         [インターフェースの実装]
-        'return_change'という抽象的な要求を、
-        コンソールにお釣りメッセージを表示するという具体的な処理で実現する。
+        指定された金額ぶんのお釣りを返却する処理。
+
+        UseCaseからは「お釣り 30 円返して」のような依頼が来るだけであって、
+        どのコインを何枚返すか、何msソレノイドを開けるか、などは関知しない。
+
+        amount:
+            返すべきお釣りの総額（円）
         """
+        # ここでは実物のコインメカの代わりにコンソール出力で表現している
         print(f"（チャリン！お釣り {amount} 円を返却しました）")
-
 ```
-
-- `class ConsoleHardwareAdapter(HardwareInterface):`
-この一行で、「私は`HardwareInterface`という契約を守る実装クラスです」と宣言しています。
-- `dispense_item`, `return_change`: `boundaries.py`で定義された抽象メソッドを、`print`文でシミュレーションとして実装しています。もしこれが本物の組み込みシステムであれば、この中にはモータードライバのライブラリを呼び出すコードなどが書かれます。
-
-## 💡 ユニットテストでAdapterの正しさを証明する
-
-アダプターのテストでは、それが正しく外部の世界（今回はコンソール）と対話するかを検証します。`print`文の出力をキャプチャして、期待通りのメッセージが表示されるかを確認します。
-
-```python
-# tests/adapters/test_hardware.py の例
-import io
-from contextlib import redirect_stdout
-
-def test_dispense_itemは正しいメッセージをコンソールに出力する():
-    # 1. Arrange (準備)
-    hardware = ConsoleHardwareAdapter()
-    # printの出力先を、通常のコンソールから一時的なテキストバッファに変更
-    f = io.StringIO()
-
-    # 2. Act (実行)
-    with redirect_stdout(f):
-        hardware.dispense_item("A1")
-
-    # 3. Assert (検証)
-    # バッファに書き込まれた内容を取得して検証
-    output = f.getvalue()
-    assert "スロット A1 の商品を排出しました" in output
-
-```
-
-## 🐍 PythonとC言語の比較（初心者の方へ）
-
-- Python (オブジェクト指向): このように、ハードウェア制御のコードを`ConsoleHardwareAdapter`というクラスにカプセル化し、`HardwareInterface`という抽象を通じて利用します。
-- C言語 (手続き型): `dispense_item_motor_driver.c`のようなファイルに関数をまとめることはできますが、インターフェースの強制力がないため、ビジネスロジックから直接`PORTB |= (1 << PB3);`のような低レベルなコードを呼び出してしまいがちです。これにより、ハードウェアとソフトウェアが密結合になります。
-
-## 🛡️ このクラスの鉄則
-
-このクラスは、忠実な「手足」に徹します。
-
-> 指示に従い、物理的に動け。 (Follow instructions and act physically.)
-> 
-- このクラスはビジネスルールについて思考しません。`UseCase`という頭脳からの指示を、物理的な作業として忠実に実行するだけです。
-- この`HardwareInterface`と`ConsoleHardwareAdapter`があるおかげで、高価な実機がなくても`UseCase`のロジックをテストできます。また、将来ハードウェアの仕様が変更になったとしても、修正が必要なのはこの`hardware.py`ファイルだけであり、ビジネスロジックには一切影響がありません。これが、組み込み開発においてクリーンアーキテクチャが非常に強力である理由です。
 
 ---
 
-## ❓ Q\&A
+## 🔍 ここで強調したいポイント
 
-### *Q. `Presenter`と`Hardware Adapter`のどちらを先に学習したほうがいいでしょうか？
+### 1. `ConsoleHardwareAdapter(HardwareInterface)` という継承
 
-**結論から言うと、`Presenter`の前に`Hardware Adapter`を解説する方が、より学習効果が高いでしょう。**
+この一行がとても重要です。
 
-「`Presenter`の前にこちらを解説することで、`Use Case`が依存する部品がすべて揃い、理解がしやすくなります」という理由は、まさにその通りで、教育的な観点から非常に優れた判断です。
+* 「私は `HardwareInterface` という契約を守る実装クラスです」と宣言している
+* だから UseCase は「HardwareInterface 型」としてこのクラスを受け取れる
+* UseCase は中身が本物のハードだろうとダミーだろうと気にしなくていい
 
-### `Hardware Adapter`を先に見せる理由
+→ この形が「依存性逆転」です。
+→ 内側（UseCase）が決めた契約に、外側（Adapter）が合わせに来る。
 
-1. **`UseCase`の全体像が完成する 🧩**`SelectItemUseCase`は、`ItemDataAccessInterface`と`HardwareInterface`という2つの主要な「道具」を使って仕事をします。UI層（`Presenter`など）を解説する前に、`UseCase`が直接依存するこれらの道具（アダプター）をすべて揃えておくことで、`UseCase`の役割である「オーケストレーション」の全体像がより明確になります。
-2. **組み込み題材の「主役」を先に紹介できる 🤖**
-この第三巡の最もユニークで重要な要素は、間違いなく`HardwareInterface`とその実装です。この「主役」を先に登場させることで、学習者は「UIはこれまでの応用だが、ハードウェアの扱い方が今回の新しい学びだ」と強く意識でき、学習のメリハリがつきます。
-3. **学習の流れがスムーズになる ➡️**
-「内側から外側へ」という流れで解説を進めるのが、クリーンアーキテクチャの学習では非常に効果的です。
-`Entity` → `UseCase` → **`UseCase`が使うAdapter (`DataAccess`, `Hardware`)** → `UseCase`を使うAdapter (`Controller`, `View`, `Presenter`) という順番は、依存関係の方向と一致しており、非常に自然で理解しやすい流れです。
+---
+
+### 2. UseCaseはハードウェアの詳細を知らない
+
+`SelectItemUseCase` はこう呼んでいましたね：
+
+```python
+self._hardware.dispense_item(item.slot_id)
+if change > 0:
+    self._hardware.return_change(change)
+```
+
+ここには「print」という言葉は一切出てきません。
+つまりUseCase側は「printで出すのか」「本物のモーターを回すのか」を全く知らない。
+
+→ これが「ビジネスロジックと物理制御の分離」です。
+→ この分離があるから、ハードが変わってもビジネスを作り直さなくていい。
+
+---
+
+### 3. テストが超ラクになる
+
+本番では `ConsoleHardwareAdapter` の代わりに、本物の `GPIOHardwareAdapter` を渡してもいいし、
+テストでは `FakeHardwareAdapter` を渡して「呼ばれた内容を記録するだけ」のスpyにしてもいい。
+
+たとえばテスト用の偽物はこう書けます：
+
+```python
+class FakeHardwareAdapter(HardwareInterface):
+    def __init__(self):
+        self.dispensed_slot_id = None
+        self.returned_change = None
+
+    def dispense_item(self, slot_id: str):
+        self.dispensed_slot_id = slot_id
+
+    def return_change(self, amount: int):
+        self.returned_change = amount
+```
+
+これを `SelectItemUseCase` に渡しておけば、
+「正しいスロットで dispense_item が呼ばれたか？」
+「正しいお釣り金額で return_change が呼ばれたか？」
+をアサートできます。物理筐体いらないです。最高です。
+
+---
+
+## 🐍 Python vs 🔧 C言語の観点
+
+* 🐍 Python（クリーンアーキテクチャ的世界観）
+
+  * ハードウェアとのやりとりは「HardwareInterface」という抽象の後ろ側に隠れる
+  * ビジネスロジックにはGPIOやレジスタの知識を漏らさない
+  * テストではハードウェア部分だけ差し替え可能
+
+* 🔧 Cっぽい従来の書き方
+
+  * 例えば `purchase_item()` の中で直接 `PORTB |= (1 << PB3);` みたいなI/O操作をしてしまう
+  * すると、ハード構成が変わるたびにビジネスロジックごと書き直しになる
+  * 自動テストもやりにくい（実機がないと動かない）
+
+この章は、まさにその「混ざってしまいがちな世界」を切り離すための場所です。
+
+---
+
+## 🛡️ このクラスの鉄則
+
+> 指示に従い、物理的に動け。
+> でも考えるのはあなたの仕事じゃない。
+
+* Hardware Adapterは「どう動くか」の専門家
+* UseCaseは「いつ何をさせるか」の司令塔
+* Entityは「それはそもそも正しいのか？」の番人
+
+この分担がはっきりするほど、ソフトウェアは安全で、交換しやすく、テストしやすくなります。
+
+---
+
+これで、
+
+* `domain`（ルールの中心）
+* `usecase`（流れを司令する）
+* `usecase/dto.py`（やり取りするデータの形）
+* `usecase/boundaries.py`（誰に何を頼めるかという契約）
+* `interface_adapters/hardware_adapter.py`（その契約を満たす実装）
+
+までそろいました。
+
+次は Controller / Presenter / View（`interface_adapters` の他ファイル）と `main.py`（Composition Root）に進んで、全体をつないで実際に「ガコンッ」と動くところまで持っていきます。

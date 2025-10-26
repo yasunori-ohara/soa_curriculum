@@ -1,134 +1,306 @@
 # 07 Controller
 
-# 🛂 Controller : adapters/controller.py
+# 🕹 Controller
+### `vending_machine/interface_adapters/controller.py`
 
-UI層の「交通整理員」、`VendingMachineController`について解説します。
+`Controller` は、ユーザーの操作（ボタン押下などの入力）を受け取り、
+それを「ユースケースが理解できる正式なリクエスト」に変換して、
+ユースケースを呼び出す役目です。
 
-## 🎯 このクラスの役割
+たとえば、誰かが「A1 の商品ください」というボタンを押したとします。
 
-`VendingMachineController`は、`View`からのユーザー入力を受け取り、それを`UseCase`が理解できる形式（`InputData`）に整えて「伝達」する交通整理員です。
+* Controller はそれを受け取って
+* `SelectItemInputData(slot_id="A1")` というDTOを組み立てて
+* `SelectItemUseCase.handle(...)` を呼び出します
 
-`View`はユーザーが何をしたか（例：「A1」ボタンが押された）を知っていますが、それがビジネス的に何を意味するのかは知りません。`Controller`は、そのUIイベントを、「スロットID:A1の商品を選択せよ」というビジネス上のリクエストに変換し、適切な`UseCase`の窓口に渡すことが唯一の責務です。
-
-`View`という「受付」と、`UseCase`という「専門部署」の間に立つ、薄いながらも重要な仲介役です。
+このように、Controllerは「外の世界のイベント」を「アプリケーションの操作」に翻訳するゲートです。
 
 ![クリーンアーキテクチャ](../クリーンアーキテクチャ.png)
 
-## ✅ このクラスにあるべき処理
+---
 
-⭕️ 含めるべき処理の例:
+## 🎯 Controller の立ち位置（ざっくりいうとこう）
 
-- `View`からのイベント（メソッド呼び出し）を受け取ること。
-- `View`から渡された生データを、`InputData`オブジェクトに変換すること。
-- `InputBoundary`インターフェースを通じて、適切な`UseCase`を呼び出すこと。
-- 複数の`UseCase`を扱うこと。（例：`select_item`だけでなく、`insert_coin`や`return_change`といったメソッドもこのクラスが持つことになります）
+* Controller は、UIや物理ボタンなど“ユーザーの入力側”と UseCase のあいだに立つ。
+* Controller は、自分でビジネスルールを判断しない。
+* Controller は、「正しい形式でユースケースを呼び出したら、その仕事は終わり」です。
 
-❌ 含めてはいけない処理の例:
+比喩でいえば：
 
-- ビジネスロジックそのもの（`UseCase`の責務）。
-- 画面表示の準備（`Presenter`の責務）。
-- 画面を直接描画する処理（`View`の責務）。
-- データベースやハードウェアに関する知識。
+> Controller は受付係、UseCase は現場責任者。
 
-## 💻 ソースコードの詳細解説
+---
 
-このコントローラーは、複数のユーザー操作（コイン投入、商品選択など）に対応するため、複数の`UseCase`に依存します。
+## ✅ Controllerがやるべきこと / やってはいけないこと
+
+⭕ Controllerがやるべきこと
+
+* ユーザーの操作を受け取る
+
+  * 例：「A1 ボタンが押された」「100円コインが投入された」
+* その情報から、UseCase用のDTO（`SelectItemInputData`など）を組み立てる
+* 適切なユースケース（`SelectItemInputBoundary`）のメソッドを呼び出す
+
+❌ Controllerがやってはいけないこと
+
+* 「お金が足りるか？」などの判断（それは `PaymentManager` や UseCaseに任せる）
+* 「お釣り30円です」といった表示用メッセージをつくる（それは Presenter）
+* モーターを回す・お釣りを出すなどハードウェア制御（それは HardwareAdapter）
+* ViewModelを更新したり print() したりする（それは View / Presenter）
+
+> Controller の合言葉は
+> **「正しいユースケースを、正しく呼ぶ。それ以上のことはしない。」**
+
+---
+
+## 💼 フォルダ構成の位置づけ
+
+今回扱うのは `interface_adapters/controller.py` です。
+フォルダ全体ではこういう位置づけになります👇
+
+```text
+vending_machine/
+├─ domain/
+│   ├─ entities.py             # Item, PaymentManager など (ビジネスルールの中心)
+│   └─ errors.py               # ドメインルール違反例外
+│
+├─ usecase/
+│   ├─ dto.py                  # InputData / OutputData / ViewModel
+│   ├─ boundaries.py           # UseCaseが外部に求める契約
+│   ├─ select_item_usecase.py  # ← 商品購入ユースケース本体
+│   └─ insert_coin_usecase.py  # ← コイン投入ユースケース（後で解説）
+│
+├─ interface_adapters/
+│   ├─ controller.py           # ← 今ここ。入力を受けてUseCaseを呼ぶ
+│   ├─ presenter.py            # UseCaseの結果→ViewModel
+│   ├─ view_console.py         # 画面表示（CLI）
+│   ├─ data_access.py          # 在庫のリポジトリ実装（インメモリ）
+│   └─ hardware_adapter.py     # ハードの実装（printでシミュレーション）
+│
+└─ main.py                     # ぜんぶ配線してアプリを起動する場所
+```
+
+---
+
+## 💻 コード（`controller.py`）
+
+このControllerは、コンソールUIを想定した「とても素直な」バージョンです。
+
+* ユーザーが購入したいスロットIDを渡すと
+* UseCaseに処理を依頼する
+* 「投入金額の状態（PaymentManager）」も、UseCaseに引き渡す
 
 ```python
-# adapters/controller.py
+# vending_machine/interface_adapters/controller.py
 
-# 内側の世界の「境界」と「データ構造」「Entity」にのみ依存する
-from application.boundaries import (
-    SelectItemInputBoundary, InsertCoinInputBoundary, ReturnChangeInputBoundary
-)
-from application.data_structures import SelectItemInputData, InsertCoinInputData
-from domain.entities import PaymentManager
+# UseCaseを呼び出すための契約（InputBoundary）と、
+# UseCaseに渡すためのデータ型（DTO）をインポート
+from vending_machine.usecase.boundaries import SelectItemInputBoundary
+from vending_machine.usecase.dto import SelectItemInputData
+from vending_machine.domain.entities import PaymentManager
+
 
 # -----------------------------------------------------------------------------
-# Controller
+# VendingMachineController
 # - クラス図の位置: Controller
-# - 同心円図の位置: Adapters (外側の円)
+# - 同心円図の位置: interface_adapters（外側の円）
+#
+# 役割:
+#   ユーザーの操作(=どのスロットを買いたいか 等)を受け取り、
+#   ユースケースを正しい形で呼び出す。
 # -----------------------------------------------------------------------------
 class VendingMachineController:
-    """ControllerはUIイベントとビジネスロジックを繋ぐ薄い層。"""
-    def __init__(self,
-                 select_item_use_case: SelectItemInputBoundary,
-                 insert_coin_use_case: InsertCoinInputBoundary,
-                 return_change_use_case: ReturnChangeInputBoundary):
-        """
-        [依存先の定義]
-        呼び出し先である複数のUseCaseの具体的な実装クラスではなく、
-        その「窓口」であるInputBoundaryインターフェースにのみ依存する。
-        """
-        self._select_item_use_case = select_item_use_case
-        self._insert_coin_use_case = insert_coin_use_case
-        self._return_change_use_case = return_change_use_case
+    """
+    自動販売機の操作をまとめて受け付ける「受付係」。
 
-    def select_item(self, slot_id: str, payment_manager: PaymentManager):
-        """[伝達処理] Viewからの商品選択イベントをUseCaseに伝える"""
-        # 1. Viewからの生データを、InputDataオブジェクトに変換
+    - 「このスロットの商品が欲しい」という要求を受け取り、
+      SelectItemUseCase に処理を依頼する。
+
+    - 「100円硬貨が投入された」といったイベントを受け取り、
+      InsertCoinUseCase に処理を依頼する（後で追加予定）。
+
+    Controller 自身はビジネスルールを判断しないのがポイント。
+    """
+
+    def __init__(
+        self,
+        select_item_usecase: SelectItemInputBoundary,
+        payment_manager: PaymentManager,
+    ):
+        """
+        [依存性の注入]
+
+        select_item_usecase:
+            商品購入のユースケース本体。
+            これは SelectItemUseCase のインスタンスが来る想定だが、
+            コード上はインターフェース(SelectItemInputBoundary)として扱うことで
+            具体的な実装を知らずに済むようにしている。
+
+        payment_manager:
+            現在の投入金額など、金銭状態を保持するエンティティ。
+            自販機にお金を入れてから買う、という一連の流れで共有される。
+        """
+        self._select_item_usecase = select_item_usecase
+        self._payment_manager = payment_manager
+
+    def select_item(self, slot_id: str):
+        """
+        [Controllerのメインメソッド例]
+        ユーザーが「このスロットの商品を買いたい」と要求したときに呼ばれる。
+
+        ここでやることは3つだけ：
+          1. DTO(SelectItemInputData)を組み立てる
+          2. UseCaseのhandle()を呼ぶ
+          3. PaymentManagerも一緒に渡す
+
+        Controllerは成功/失敗そのものをprintしない。
+        → 実際の表示は Presenter & View が担当する。
+        → ハードウェアの動作もここでは触らない。
+        """
+        # 1. ユースケースに渡す正式なリクエストDTOを作る
         input_data = SelectItemInputData(slot_id=slot_id)
 
-        # 2. 変換したデータを添えて、インターフェースを通じてUseCaseの実行を依頼
-        self._select_item_use_case.handle(input_data, payment_manager)
-
-    def insert_coin(self, coin: int, payment_manager: PaymentManager):
-        """[伝達処理] Viewからのコイン投入イベントをUseCaseに伝える"""
-        input_data = InsertCoinInputData(coin=coin)
-        self._insert_coin_use_case.handle(input_data, payment_manager)
-
-    def return_change(self, payment_manager: PaymentManager):
-        """[伝達処理] Viewからのお釣り要求イベントをUseCaseに伝える"""
-        # このUseCaseは入力データが不要なため、InputDataは作成しない
-        self._return_change_use_case.handle(payment_manager)
-
+        # 2. ユースケースを実行する
+        #    - UseCase内で在庫チェック／支払い処理／お釣り計算／ハード指示など
+        #      一連の購入フローが走る
+        self._select_item_usecase.handle(
+            input_data=input_data,
+            payment_manager=self._payment_manager,
+        )
 ```
 
-- `__init__`: このコントローラーは3つの異なるシナリオ（商品選択、コイン投入、お釣り排出）を扱うため、それぞれに対応する3つの`UseCase`のインターフェースを受け取ります。
-- `select_item`メソッド: `View`から渡された`slot_id`を`SelectItemInputData`に変換（箱詰め）し、`UseCase`の`handle`メソッドを呼び出します。
-- `Controller`自身は一切「考えず」、ただ情報を右から左へ受け流しているだけ、という点が重要です。
+---
 
-## 💡 ユニットテストでControllerの正しさを証明する
+## 🔍 コードの見どころ
 
-Controllerのテストでは、「交通整理」が正しく行われているかを検証します。`View`から特定のメソッドが呼ばれたときに、対応する`UseCase`が正しいデータで呼び出されているかだけを確認します。
+### 1. `VendingMachineController` はビジネスを知らない
+
+在庫チェックも、お金が足りるかの判断もしません。
+「それはUseCaseに聞いてください」というスタンスです。
+
+これはめちゃくちゃ重要で、
+**Controllerが太り始めると一気に“全部ここでやればよくない？”状態になる**ので要注意です。
+太ったControllerはフレームワーク依存になり、再利用できなくなります。
+
+### 2. DTOを組み立ててからUseCaseに渡す
 
 ```python
-# tests/adapters/test_controller.py の例
-
-def test_select_itemが呼ばれると対応するUseCaseが起動する():
-    # 1. Arrange (準備): すべてのUseCaseをモック（偽物）にする
-    mock_select_uc = MockSelectItemUseCase()
-    mock_insert_uc = MockInsertCoinUseCase()
-    mock_return_uc = MockReturnChangeUseCase()
-
-    # 2. Act (実行)
-    controller = VendingMachineController(
-        mock_select_uc, mock_insert_uc, mock_return_uc
-    )
-    # Viewから select_item が呼ばれたと仮定
-    controller.select_item(slot_id="A1", payment_manager=PaymentManager())
-
-    # 3. Assert (検証)
-    # 意図: 「select_itemが呼ばれたら、SelectItemUseCaseだけが起動し、
-    #       他のUseCaseは呼ばれていないこと」をテスト
-    assert mock_select_uc.handle_was_called is True
-    assert mock_select_uc.received_input_data.slot_id == "A1"
-
-    assert mock_insert_uc.handle_was_called is False
-    assert mock_return_uc.handle_was_called is False
-
+input_data = SelectItemInputData(slot_id=slot_id)
+self._select_item_usecase.handle(input_data, self._payment_manager)
 ```
 
-## 🐍 PythonとC言語の比較（初心者の方へ）
+ポイントは、素の値（ただの文字列 `"A1"`）をそのまま渡さないこと。
+「ユースケースに渡す公式な入力フォーマット（SelectItemInputData）」に包んでから渡します。
 
-- Python (オブジェクト指向): `VendingMachineController`というクラスに、UIイベントと`UseCase`を仲介する責務をカプセル化します。
-- C言語 (手続き型): UIライブラリのコールバック関数が`Controller`の役割を担うことが多いでしょう。ボタンクリック時に呼ばれる関数の中で、入力値に応じて`if-else`文で処理を分岐させ、対応するビジネスロジック関数を直接呼び出す形になります。これではUIとビジネスロジックが密結合になりがちです。
+これで、境界をまたいだ時点で「データの形が保証される」ようになります。
+バラバラの辞書や生の引数を渡し始めると、急にカオスになります。
 
-## 🛡️ このクラスの鉄則
+### 3. `payment_manager` を Controller が握っている
 
-このクラスは、交通整理員として、決められたルールに従うだけです。
+なぜ `PaymentManager` を Controller が持つかというと、
+自販機の利用中、「投入中の金額」という状態は現在のユーザーセッションに紐づいて生き続けるからです。
 
-> 入力を整理し、然るべき場所に渡せ。 (Organize the input and pass it to the right place.)
-> 
-- `Controller`はビジネスロジックを持ちません。UIとビジネスロジックの間に立ち、両者が直接会話しないようにする緩衝材の役割に徹します。
-- この層が薄く保たれているおかげで、`UseCase`は`View`を知らず、`View`は`UseCase`を知らない、というクリーンな分離が実現できます。
+* 100円入れる
+* さらに100円入れる
+* それから商品を買う
+
+という一連の流れの間、`PaymentManager.current_amount` はずっと更新され続けます。
+これをどこに保持するか？という答えのひとつが「Controllerが握る」なんです。
+
+（別の設計もあり得ます。例えばPaymentManager用の専用Adapterを作って永続管理する、など。そこは後で拡張できる部分です）
+
+---
+
+## 🧪 Controllerのユニットテスト
+
+Controllerのテストは「正しいユースケースを、正しい形で呼んでいるか？」を確認します。
+ビジネスの結果はPresenter/Viewで確認すればOKなので、Controllerテストではそこまで踏み込みません。
+
+```python
+# tests/interface_adapters/test_controller.py
+
+from vending_machine.interface_adapters.controller import VendingMachineController
+from vending_machine.usecase.dto import SelectItemInputData
+from vending_machine.domain.entities import PaymentManager
+
+
+class FakeSelectItemUseCase:
+    """
+    SelectItemInputBoundary を満たすテスト用の偽物。
+    呼ばれたときの引数を覚えておくスパイ役。
+    """
+    def __init__(self):
+        self.called_with_input = None
+        self.called_with_pm = None
+
+    def handle(self, input_data, payment_manager):
+        self.called_with_input = input_data
+        self.called_with_pm = payment_manager
+
+
+def test_Controllerは_usecaseを正しく呼び出す():
+    # 1. Arrange
+    fake_usecase = FakeSelectItemUseCase()
+    pm = PaymentManager(current_amount=200)
+    controller = VendingMachineController(
+        select_item_usecase=fake_usecase,
+        payment_manager=pm,
+    )
+
+    # 2. Act
+    controller.select_item(slot_id="A1")
+
+    # 3. Assert
+    # ユースケースが正しく呼ばれたか？（= Controllerは受付係として仕事したか？）
+    assert isinstance(fake_usecase.called_with_input, SelectItemInputData)
+    assert fake_usecase.called_with_input.slot_id == "A1"
+    assert fake_usecase.called_with_pm is pm
+```
+
+チェックしてるのはたったこれだけです：
+
+* ControllerはDTOをちゃんと作って渡した？
+* Controllerは正しいPaymentManagerを渡した？
+* その結果、UseCaseが呼ばれた？
+
+これだけでもう、Controllerの責務は満たせているといえます。
+
+---
+
+## 🐍 Python と 🔧 C言語のイメージ比較
+
+* 🐍 Python / クリーンアーキテクチャ的なController
+
+  * 「外部入力（ボタン・HTTP・CLI）を受けて、UseCaseに橋渡しする役」
+  * フレームワークにべったりしない。
+  * 将来、CLIからWeb APIに変えても、Controllerを差し替えるだけで済む。
+
+* 🔧 C言語ベースの組み込みあるある
+
+  * メインループの中で「ボタン押されたら直接在庫変数いじって、直接モーター回して、直接printfする」
+  * つまり受付・ビジネス・ハード・表示が1カ所にベタッと固まる
+  * → 部分的なテストができない
+  * → 仕様変更すると一気に全部直す羽目になる
+
+Controllerを分ける狙いは、まさにこの「ごちゃまぜロジック」を分解することにあります。
+
+---
+
+## 🛡️ Controller層の鉄則
+
+> 正しいユースケースを、正しい形で呼べ。
+> それ以外のことは他の層に任せろ。
+
+* Controllerは“受付窓口”。
+* UseCaseに「これお願いします」と依頼するのが仕事。
+* それ以上はやらない（やらせない）。
+
+こうして、
+
+* UseCaseは「ビジネスの流れ」
+* Presenterは「見せ方」
+* HardwareAdapterは「物理的な動き」
+* Controllerは「入力の取りまとめ」
+  という役割分担が、きれいに四分割で揃います。
+
+

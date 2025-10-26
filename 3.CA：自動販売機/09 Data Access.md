@@ -1,139 +1,246 @@
 # 09 Data Access
 
-# 💾 Data Access : adapters/data_access.py
+# 💾 Data Access : `vending_machine/interface_adapters/data_access.py`
 
-`UseCase`が仕事を依頼する相手との「契約書」ができたので、次はそれを具体的に実装する`Adapters`層を見ていきましょう。
+ここでは自販機の「在庫データ」を扱うアダプタを説明します。
+このアダプタは、自販機の各スロットに何が入っていて、いま何本残っているのか、といった情報を管理します。
 
-まずは、データベースとのやり取りを担当する`Data Access`を解説します。今回は商品在庫と、取引中の投入金額という2種類のデータを永続化（保持）する必要があります。
+役割を一言で言うと：
 
-## 🎯 このファイルの役割
+> UseCase から「A1番スロットの情報ちょうだい」「この商品、在庫1本減ったから保存して」と依頼されたときに、
+> 実際にデータを探したり更新したりする倉庫係。
 
-このファイルは、`boundaries.py`で定義されたデータアクセスインターフェースを、具体的な技術（今回はインメモリ）で実装するアダプターです。
-
-`UseCase`からの「スロットID:A1の商品を探して」「現在の投入金額を保存して」といった抽象的な要求を、Pythonのオブジェクトや辞書を操作するという具体的なストレージへの読み書き処理に変換して実行します。
-
-`UseCase`という「設計部門」と、データを保持する「倉庫」の間に立つ、「倉庫管理人」のような役割を果たします。
+`UseCase` は「在庫がどこに保存されているか」を知りません。
+メモリなのか、DBなのか、クラウドAPIなのか、ファイル保存なのか。ぜんぶ知りません。
+それを隠す壁の役が、この Data Access（リポジトリ）です。
 
 ![クリーンアーキテクチャ](../クリーンアーキテクチャ.png)
 
-## ✅ このファイルにあるべき処理
+---
 
-⭕️ 含めるべき処理の例:
+## 🎯 どこに置くの？誰が誰に依存するの？
 
-- `DataAccessInterface`で定義されたメソッドの具体的な実装。
-- `Entity`を永続化するためのデータソースとのやり取り。
+フォルダ構成ではこうなります👇
 
-❌ 含めてはいけない処理の例:
+```text
+vending_machine/
+├─ domain/
+│   ├─ entities.py             # Item / PaymentManager など（ビジネスルールの中心）
+│   └─ errors.py               # ドメイン固有の例外
+│
+├─ usecase/
+│   ├─ dto.py                  # InputData / OutputData / ViewModel
+│   ├─ boundaries.py           # UseCaseが外部に求める契約 (ItemDataAccessInterface など)
+│   ├─ select_item_usecase.py  # 商品購入フロー
+│   └─ insert_coin_usecase.py  # コイン投入フロー
+│
+├─ interface_adapters/
+│   ├─ controller.py           # ユーザーの操作をUseCaseに渡す
+│   ├─ presenter.py            # UseCase結果をViewModelに整える
+│   ├─ view_console.py         # ユーザーとの入出力ループ
+│   ├─ data_access.py          # ← いまここ：在庫リポジトリの具体実装
+│   └─ hardware_adapter.py     # ハードウェア操作の具体実装（今回はprintでシミュレート）
+│
+└─ main.py                     # 全部をnewして配線する場所
+```
 
-- ビジネスロジック（`UseCase`の責務）。
-    - 例：「この商品は現在セール中か？」といった判断は行いません。ただ「在庫を探して」「保存して」という指示を忠実に実行するだけです。
+キモは依存方向です。
 
-## 💻 ソースコードの詳細解説
+* `usecase/` 側には `ItemDataAccessInterface` という「契約(インターフェース)」だけがある
+* `interface_adapters/data_access.py` 側が、その契約を“実装する”具体クラスを持つ
 
-原則として、*1つのEntityに対して、1つのData Accessクラス（リポジトリ）が作られます。* 今回は`Item`と`PaymentManager`、2つのEntityに対応するリポジトリを実装します。
+これはクリーンアーキテクチャの超大事なパターンです：
+「内側（usecase）はインターフェースだけを知る。外側（adapter）が実装を担う。」
+
+---
+
+## ✅ Data Access がやっていいこと / やっちゃダメなこと
+
+⭕ やっていいこと
+
+* 在庫一覧を保持する（今回はインメモリ辞書）
+* スロットIDで商品を検索する
+* 商品の在庫を更新して保存する
+
+❌ やっちゃダメなこと
+
+* 「在庫が0なら売れない」と判断する（それは `Item` や `UseCase`）
+* 「お金が足りるか？」を判断する（それは `PaymentManager` や `UseCase`）
+* ハードウェアを動かす（それは `hardware_adapter.py`）
+
+> Data Access は「倉庫の番人」。
+> 倉庫からモノを取り出したり、戻したりするだけ。売っていいかどうかは考えない。
+
+---
+
+## 💻 コード（`data_access.py`）
+
+いまはデータベースは使わず「インメモリ版（プログラムの中だけで完結する簡易DB）」で実装します。
+これだけでも UseCase 側からは「ちゃんとリポジトリがある」ように見えるので、学習・テストには十分です。
 
 ```python
-# adapters/data_access.py
+# vending_machine/interface_adapters/data_access.py
 
 from typing import Dict, Optional
 
-# 内側の世界のEntityと「境界」にのみ依存する
-from domain.entities import Item, PaymentManager
-from application.boundaries import ItemDataAccessInterface, PaymentManagerAccessInterface
+# 内側レイヤーの定義をインポートする
+from vending_machine.domain.entities import Item
+from vending_machine.usecase.boundaries import ItemDataAccessInterface
+
 
 # -----------------------------------------------------------------------------
-# DataAccess (Repository)
-# - クラス図の位置: DataAccess
-# - 同心円図の位置: Adapters (Gateways)
+# InMemoryItemDataAccess
+# - クラス図の位置: DataAccess (Repository)
+# - 同心円図の位置: interface_adapters（外側の円）
+#
+# これは ItemDataAccessInterface（= UseCaseが期待する契約）を
+# インメモリ辞書で実装した具体クラスです。
+#
+# UseCaseから見ると「商品保管庫に問い合わせできる相手」。
+# 実際の保管場所・保存方法は知られない（隠蔽される）。
 # -----------------------------------------------------------------------------
-
 class InMemoryItemDataAccess(ItemDataAccessInterface):
-    """ItemDataAccessInterfaceの「インメモリDB」版実装"""
-    _database: Dict[str, Item] = {}
+    """
+    自販機の中の商品スロットを、Pythonの辞書で管理する簡易リポジトリ。
+
+    例:
+        "A1": Item(slot_id="A1", name="お茶", price=160, stock=5)
+
+    実務ではここがDB（SQL, MongoDBなど）や外部API呼び出しに
+    差し替わることになりますが、UseCase側のコードは一切変わりません。
+    """
 
     def __init__(self):
-        # サンプルとして初期データをいくつか用意しておく
-        self._database["A1"] = Item(slot_id="A1", name="お茶", price=160, stock=5)
-        self._database["B2"] = Item(slot_id="B2", name="コーヒー", price=130, stock=3)
-        self._database["C3"] = Item(slot_id="C3", name="水", price=110, stock=0) # 在庫切れ
+        # この辞書が「仮想の在庫データベース」というイメージです
+        self._database: Dict[str, Item] = {
+            "A1": Item(slot_id="A1", name="お茶",     price=160, stock=5),
+            "B2": Item(slot_id="B2", name="コーヒー", price=130, stock=3),
+            "C3": Item(slot_id="C3", name="水",       price=110, stock=0),  # 在庫切れサンプル
+        }
 
     def find_by_slot_id(self, slot_id: str) -> Optional[Item]:
-        """[インターフェースの実装] 'find_by_slot_id'を辞書検索で実現"""
+        """
+        [インターフェースの実装]
+        指定スロットの商品(Item)を返す。
+
+        UseCase は「slot_id='A1'ください」とだけ言えばよく、
+        この中身が辞書だろうがDBだろうが知らなくてよい。
+        """
         return self._database.get(slot_id)
 
     def save(self, item: Item) -> Item:
-        """[インターフェースの実装] 'save'を辞書への上書き保存で実現"""
+        """
+        [インターフェースの実装]
+        在庫の変更結果を保存する。
+
+        例:
+            item.dispense() によって stock が 5 -> 4 になったあと、
+            ここでその状態を"永続化"するイメージ。
+        """
         self._database[item.slot_id] = item
         return item
-
-class InMemoryPaymentManagerAccess(PaymentManagerAccessInterface):
-    """
-    PaymentManagerAccessInterfaceのインメモリ版実装。
-    アプリケーション全体で唯一の投入金額状態を保持するため、シングルトンとして振る舞う。
-    """
-    _instance: PaymentManager = PaymentManager() # アプリケーションの状態を保持
-
-    def get(self) -> PaymentManager:
-        """現在のPaymentManagerインスタンスを取得する"""
-        return self._instance
-
-    def save(self, payment_manager: PaymentManager):
-        """PaymentManagerの状態を保存（更新）する"""
-        self._instance = payment_manager
-
 ```
 
-- `InMemoryItemDataAccess`: 在庫情報を管理します。`__init__`でサンプル商品を辞書に格納しています。
-- `InMemoryPaymentManagerAccess`: 取引中の投入金額を管理します。自動販売機全体で投入金額の状態は一つだけなので、クラス変数`_instance`に`PaymentManager`オブジェクトを保持する、シンプルなシングルトンパターンとして実装しています。
+---
 
-## 💡 ユニットテストでDataAccessの正しさを証明する
+## 🔎 ここであえて扱わないもの：PaymentManager の「保存」
 
-DataAccessのテストでは、永続化ロジックが正しく機能するかを検証します。`save`した後に`get`や`find`で正しく取得できるかを確認します。
+「PaymentManager（投入金額などの状態）も Data Access で扱わなくていいの？」という疑問はすごく自然です。
+
+結論：この第三巡では、**扱いません**。理由はこの3つです。
+
+1. `PaymentManager` はビジネス上「今この客がいくら入れているか？」というリアルタイムのワーク中の状態。
+   「棚卸ししてDBに残しておくべき履歴」ではない。
+
+2. 自販機アプリが動いている間、`PaymentManager` は1つだけ生きていて、
+   コイン投入や返金のたびにその1つが更新され続けます。
+   これはDBよりも「現在のセッションオブジェクト」に近い。
+
+3. この「どこで持つか？」という話は、実はアーキテクチャの応用編ネタなんです。
+
+   * main.py で1つ作って全体に注入する
+   * Controller が持ってUseCaseに渡す
+   * ハードウェア側から渡す
+     などいくつか戦略があるので、そこは main.py の章で整理します。
+
+なので Data Access 章では、対象を **Item の在庫** に絞るほうがシンプルで学びやすいです。
+「まずは在庫リポジトリ」を理解できればOKです。
+
+---
+
+## 🧪 DataAccess のユニットテスト
+
+Data Access のテストはすごくストレートです。
+やりたいことはただひとつ：「saveした内容が find で取れること」を確かめること。
 
 ```python
-# tests/adapters/test_data_access.py の例
+# tests/interface_adapters/test_data_access.py
 
-def test_InMemoryItemDataAccessは商品の保存と検索ができる():
+from vending_machine.interface_adapters.data_access import InMemoryItemDataAccess
+from vending_machine.domain.entities import Item
+
+
+def test_saveした商品が_find_by_slot_idで取得できる():
     # 1. Arrange (準備)
-    item_repo = InMemoryItemDataAccess()
-    new_item = Item(slot_id="D4", name="コーラ", price=160, stock=10)
+    repo = InMemoryItemDataAccess()
+
+    new_item = Item(
+        slot_id="Z9",
+        name="エナジードリンク",
+        price=200,
+        stock=7,
+    )
 
     # 2. Act (実行)
-    item_repo.save(new_item)
-    found_item = item_repo.find_by_slot_id("D4")
+    repo.save(new_item)                    # 在庫を保存
+    result = repo.find_by_slot_id("Z9")    # 取り出しテスト
 
     # 3. Assert (検証)
-    # 意図: 「saveしたものが、ちゃんとfind_by_slot_idで見つかるか？」をテスト
-    assert found_item is not None
-    assert found_item.name == "コーラ"
-
-def test_InMemoryPaymentManagerAccessは状態を保持できる():
-    # 1. Arrange (準備)
-    pm_repo = InMemoryPaymentManagerAccess()
-    pm = pm_repo.get()
-    pm.insert_coin(100)
-
-    # 2. Act (実行)
-    pm_repo.save(pm)
-    # 別の場所で再度取得したと仮定
-    retrieved_pm = pm_repo.get()
-
-    # 3. Assert (検証)
-    # 意図: 「saveした状態が、次にgetした時も維持されているか？」をテスト
-    assert retrieved_pm.current_amount == 100
-
+    assert result is not None
+    assert result.name == "エナジードリンク"
+    assert result.stock == 7
 ```
 
-## 🐍 PythonとC言語の比較（初心者の方へ）
+ここでチェックしているのはビジネスルールではありません。
 
-- Python (オブジェクト指向): `InMemoryItemDataAccess`のようなクラスが、`ItemDataAccessInterface`という契約（インターフェース）を実装します。
-- C言語 (手続き型): `save_item_to_file(item)`や`find_item_from_file(slot_id)`のような、特定のデータソースに密結合した関数群として実装されることが多いでしょう。データソースを変更するには、これらの関数をすべて書き直す必要があり、変更の影響が大きくなりがちです。
+* `Item.dispense()` をちゃんと呼んだか？
+* お金は足りていたか？
+  みたいなことは一切見ていないですよね。
 
-## 🛡️ このクラス群の鉄則
+テストしているのは純粋に「倉庫から同じものが出てくるか？」だけ。
+これが Data Access の責務そのものです。
 
-このファイル内のすべてのクラスは、同じ鉄則に従います。
+---
 
-> データを変換し、黙って実行せよ。 (Translate and execute, but do not think.)
-> 
-- これらのクラスはビジネスルールについて思考しません。`UseCase`からの指示を、技術的な作業として忠実に実行するだけです。
-- このファイルのおかげで、`UseCase`はデータがメモリ上にあるのか、ファイルにあるのかを一切気にせずに済みます。将来、在庫管理を外部のWeb APIで行うことになったとしても、影響範囲はこの`data_access.py`ファイルだけに限定されます。
+## 🐍 Python と 🔧 C言語のイメージ比較
+
+* 🐍 Python＋クリーンアーキテクチャ
+
+  * `ItemDataAccessInterface` という抽象（契約）を UseCase が使う
+  * `InMemoryItemDataAccess` という具体実装は外側にある
+  * 後でDBに変えても UseCase は一切変更不要
+
+* 🔧 C言語でありがちなやり方
+
+  * 在庫配列やグローバル変数を main.c 内で直接更新
+  * 在庫を更新する関数の中で、ついでにハードウェアを動かしたり、ログをprintfしたりしがち
+  * つまり「データ管理」と「ビジネス判断」と「ハード操作」が混ざってテスト不能になる
+
+今回の分割は、「在庫データを触る場所」を一箇所に閉じ込めて、他の層に漏らさないためのものです。
+
+---
+
+## 🛡️ このクラスの鉄則
+
+> データを取り出し、保存せよ。ただし考えるな。
+> (Get and save. Do not think.)
+
+* Data Access は「倉庫番」。在庫を探し、更新して、戻すだけ。
+* 「これは売っていいのか？」の判断はしない。
+* 「売った結果こう表示するべき」は考えない。
+* それらは必ず UseCase / Entity / Presenter に任せる。
+
+この鉄則を守ると、
+「DBを変えたい」「Web API にしたい」「テストではインメモリでいい」
+といった現実的な要求にめちゃくちゃ強いアーキテクチャになります。
+

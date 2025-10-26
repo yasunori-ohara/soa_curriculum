@@ -1,61 +1,93 @@
 # 01 Entities
 
-# 🧩 Entities : domain/entities.py
+# 🧩 Entities
+### `vending_machine/domain/entities.py`
 
-新しい題材「シンプルな自動販売機」のプログラムを、これまでと同じ詳細な解説形式で構築していきましょう。
+ここから実装をスタートします。最初に定義するのは **Entities（エンティティ）** です。
 
-まずはシステムの心臓部である`Entities`から始めます。このシステムには`Item`（商品）と`PaymentManager`（金銭管理）という2つの主要なEntityが存在します。
+自動販売機を動かすうえで、いちばん核心になる「ビジネスルール」と「状態」を表すクラスが `Entity` です。
+この自販機では、主に 2 つのEntityが存在します：
 
-## 🎯 このファイル（クラス群）の役割
+* 🥤 `Item` ……「商品スロット1枠」を表す
+* 💰 `PaymentManager` ……「投入金額の管理と支払いルール」を表す
 
-このファイルに定義される`Item`クラスと`PaymentManager`クラスは、アーキテクチャの最も内側に位置する`Entities`です。アプリケーション全体の核となるビジネスルールとデータをカプセル化（内包）します。
+---
 
-これらは、自動販売機というビジネスドメインそのものにとって普遍的なルールとデータを表現します。
+## 🎯 Entities層とは？
 
-平たく言えば、「このビジネスにおける『商品』や『金銭管理』とは何か、そしてそれらが従うべきルールは何か」を定義する場所です。
+* アプリ全体の **いちばん内側** にある層です。
+* 自販機として**守らなきゃいけないルール（在庫が無いものは売れない／足りないお金では買えない）**がここに書かれます。
+* 外の世界（UIが何か、DBは何を使うか、ハードウェアはどう動くか）には一切依存しません。
+
+> 🔒 つまり「自販機としての約束」を定義する場所。
+> ここが壊れると、外側がどれだけ頑張っても正しく動かない。
 
 ![クリーンアーキテクチャ](../クリーンアーキテクチャ.png)
 
+---
+
 ## ✅ Entity 1 : `Item`
 
-`Item`クラスは、自動販売機の商品スロット一つ一つを表現するEntityです。
+### 🍾 何を表すクラス？
 
-商品のデータ（名前、価格、在庫数）を保持するだけでなく、「在庫がなければ商品は排出できない」といった、商品そのものに関する純粋なビジネスルールを内包します。
+`Item` は、自動販売機の「スロット1つぶんの商品状態」を表します。
 
-### このクラスにあるべき処理
+* “A1の枠に入っているお茶は120円で9本残っている”
+  みたいな情報を1つのオブジェクトで持ちます。
 
-⭕️ 含めるべき処理の例:
+### 👀 `Item` が責任を持つこと
 
-- 商品に必須のプロパティ（スロットID, 名前, 価格, 在庫数）。
-- 自身の状態をチェックするメソッド（例：`is_in_stock()`）。
-- 自身の状態を変更するロジックと、それに伴うルール（例：`dispense()`メソッド内で在庫数をチェックし、1減らす）。
+* 自分の属性（スロットID・商品名・価格・在庫数）を正しく保持する
+* 「在庫はある？」という判断
+* 実際に1本売ったときの在庫の更新と、そのルール
 
-❌ 含めてはいけない処理の例:
+  * 在庫が0のときは売れない（例外を出す）
 
-- データベースへの保存処理。
-- 投入金額に関する知識（それは`PaymentManager`の責務です）。
-- 商品を物理的に排出するモーターの制御など、ハードウェアに関する知識。
+ここで大事なポイント：
 
-### 💻 ソースコードの詳細解説
+* ❌ データベースへの保存の仕方は知らない
+* ❌ 実際にモーターを回して商品を落とす方法も知らない
+* ❌ “お金が足りてるか” の判定も担当しない（それは後述の `PaymentManager` の責任）
+
+Entityは、自分に関する正しさだけ守ればいい。その潔さが大事です。
+
+## 💻 フォルダ構成
+
+```text
+vending_machine/
+├─ domain/
+│   ├─ entities.py          # Item, PaymentManager など     <- いまここ
+│   ├─ errors.py            # ドメインルール違反例外
+│   └─ repositories.py      # DataAccessInterface / HardwareInterface
+```
+### 💻 コード（`Item`）
 
 ```python
-# domain/entities.py
+# vending_machine/domain/entities.py
 
 # -----------------------------------------------------------------------------
 # Item Entity
-# - クラス図の位置: Entities
-# - 同心円図の位置: Entities (最も内側)
+# - 役割: 自動販売機の「1つのスロットに入っている商品」を表す
+# - 責務: 在庫数や価格などの本質的な状態と、その状態遷移ルールを管理する
 # -----------------------------------------------------------------------------
 class Item:
-    """商品エンティティ"""
+    """自動販売機の1スロット分の商品を表すエンティティ"""
+
     def __init__(self, slot_id: str, name: str, price: int, stock: int):
         """
-        [データ]
-        商品が本質的に持つべきデータ（属性）を定義する。
+        slot_id: 自販機内のスロット番号（例: "A1" や "B3"）
+        name:    商品名（例: "お茶"、"コーラ"）
+        price:   商品の価格（整数, 単位: 円）
+        stock:   在庫本数（0 以上の整数）
+
+        ここでは「この商品がそもそもあり得る状態なのか？」をチェックする。
+        例えば「-5円のジュース」や「在庫-3本」は現実的におかしいので禁止する。
         """
-        # 不変条件のチェック（自己バリデーション）
-        if price <= 0 or stock < 0:
-            raise ValueError("価格や在庫に負の値は設定できません。")
+        # ✅ エンティティは自分自身を壊れた状態にしない
+        if price <= 0:
+            raise ValueError("価格は1円以上である必要があります。")
+        if stock < 0:
+            raise ValueError("在庫数は0以上である必要があります。")
 
         self.slot_id = slot_id
         self.name = name
@@ -63,146 +95,231 @@ class Item:
         self.stock = stock
 
     def is_in_stock(self) -> bool:
-        """[ビジネスルール] 在庫があるかどうかを判断する"""
+        """
+        [ビジネスルール] 今この商品は売れる状態か？
+
+        戻り値:
+            True  -> まだ在庫がある
+            False -> 売り切れ
+        """
         return self.stock > 0
 
     def dispense(self):
-        """[ビジネスルール] 商品を1つ排出する際の、在庫の状態遷移ルール"""
+        """
+        [ビジネスルール] 商品を1本出荷（排出）する。
+
+        - 在庫が0本ならエラーにする（売ってはいけない）
+        - 正常に売れた場合は在庫を1本減らす
+
+        ※ ここでは「モーターを回す」などの物理作業は一切しない。
+           それはハードウェア層(interface_adapters)の責務。
+           Itemはあくまで「在庫を1本減らすのは合法か？」だけを見る。
+        """
         if not self.is_in_stock():
             raise ValueError(f"商品「{self.name}」は在庫切れです。")
         self.stock -= 1
 
     def __repr__(self):
-        return f"Item(slot='{self.slot_id}', name='{self.name}', price={self.price}, stock={self.stock})"
-
+        """
+        デバッグ用の文字列表現。
+        print(item) したときに読みやすい形で表示できるようにする。
+        """
+        return (
+            f"Item(slot='{self.slot_id}', "
+            f"name='{self.name}', price={self.price}, stock={self.stock})"
+        )
 ```
 
-- `__init__`: 価格や在庫数が不正な値でないかをチェックするバリデーションルールを持っています。
-- `dispense()`: このEntityの核となるビジネスルールです。まず在庫を確認し、なければエラーを発生させます。在庫がある場合のみ、自身の`stock`を1減らします。
+---
 
 ## ✅ Entity 2 : `PaymentManager`
 
-`PaymentManager`クラスは、自動販売機の金銭管理の状態とルールを表現するEntityです。
+### 💰 何を表すクラス？
 
-現在投入されている金額を追跡し、「投入金額が足りているか」「お釣りはいくらか」といった、お金に関する純粋なビジネスルールを内包します。
+`PaymentManager` は、自動販売機に入れられたお金の扱いを管理するエンティティです。
 
-### このクラスにあるべき処理
+この人は「今、いくら入ってる？」「この商品を買えるほど入ってる？」「お釣りは？」といった**お金の正しさ**を保証します。
 
-⭕️ 含めるべき処理の例:
+### 👀 `PaymentManager` が責任を持つこと
 
-- 現在の投入金額を保持するプロパティ。
-- 状態を変更するメソッド（例：`insert_coin()`, `process_purchase()`）。
-- 自身のデータだけで完結する計算（例：お釣りの計算）。
-- 投入された硬貨が有効かどうかのチェック。
+* 現在の投入金額を保持・更新する
+* 有効な硬貨かどうかをチェックする（例：10円・50円・100円・500円だけOK）
+* 商品を買おうとしたときに
 
-❌ 含めてはいけない処理の例:
+  * お金が足りるかどうか判定する
+  * 実際に購入を成立させる
+  * お釣りの金額を決める
+  * 状態（投入金額）をリセットする
 
-- どの商品が買われようとしているかの知識。ただし、購入処理の際には商品情報(`Item`)そのものを受け取り、価格を尋ねるのは良い設計です。
-- 物理的なコイン識別機や、お釣り排出装置の制御。
+ここで大事なポイント：
 
-### 💻 ソースコードの詳細解説
+* ❌ `PaymentManager` はハードウェアコインメカ（コインを物理的に戻す装置）を知らない
+* ❌ `PaymentManager` は在庫操作をしない（それは `Item` の責務）
+* ✅ 「金の話しかしない」ようにとにかく絞ってある
+
+---
+
+### 💻 コード（`PaymentManager`）
 
 ```python
-# domain/entities.py (続き)
+# vending_machine/domain/entities.py (つづき)
 
 # -----------------------------------------------------------------------------
 # PaymentManager Entity
-# - クラス図の位置: Entities
-# - 同心円図の位置: Entities (最も内側)
+# - 役割: 現在投入されている金額と、その金額でできることを管理する
+# - 責務:
+#     - 硬貨の受け入れルール
+#     - 購入可能判定
+#     - お釣りの計算
+#     - 取引後のリセット
 # -----------------------------------------------------------------------------
 class PaymentManager:
-    """金銭管理エンティティ"""
-    VALID_COINS = {10, 50, 100, 500} # 有効な硬貨の種類というビジネスルール
+    """自動販売機に投入された金額を管理するエンティティ"""
+
+    # 自販機が受け付ける硬貨の種類（ビジネスルール）
+    VALID_COINS = {10, 50, 100, 500}
 
     def __init__(self, current_amount: int = 0):
         """
-        [データ]
-        現在の投入金額を状態として保持する。
+        current_amount:
+            現時点で投入済みの金額（円）
+            例えば100円玉×2枚入れたら200になるイメージ
         """
         self.current_amount = current_amount
 
     def insert_coin(self, coin: int):
-        """[ビジネスルール] 有効な硬貨が投入されたら、投入金額を増やす"""
+        """
+        [ビジネスルール] 硬貨が投入されたときの処理。
+
+        - 有効な硬貨（10, 50, 100, 500円）だけを受け付ける
+        - それ以外はエラーとして拒否する
+        - 受け付けたら現在の投入金額に加算する
+        """
         if coin not in self.VALID_COINS:
             raise ValueError(f"{coin}円硬貨は使用できません。")
         self.current_amount += coin
 
     def is_sufficient(self, price: int) -> bool:
-        """[ビジネスルール] 投入金額が価格に対して十分かを判断する"""
+        """
+        [ビジネスルール] 指定された価格の商品を買うだけの金額が
+        すでに投入されているかどうかを判定する。
+        """
         return self.current_amount >= price
 
     def process_purchase(self, item: Item) -> int:
         """
-        [ビジネスルール] 購入を処理し、お釣りを計算する。
-        投入金額はリセットされる。
-        Itemオブジェクト自身を渡すことで、価格の取り違えを防ぎ、責務の連携がより明確になる。
+        [ビジネスルール] 商品を購入しようとする処理。
+
+        - 現在の投入金額が足りていなければエラー
+        - 足りていれば購入成功として扱い、お釣りを計算する
+        - お釣りの金額（int）を返す
+        - この取引が終わったので投入金額を0にリセットする
+
+        引数:
+            item: 購入対象の商品そのもの
+                  -> item.price を見ることで価格を参照する
+
+        戻り値:
+            change(int): お釣りの金額
         """
         if not self.is_sufficient(item.price):
             raise ValueError("投入金額が不足しています。")
 
+        # お釣り = 今入っている金額 - 商品の価格
         change = self.current_amount - item.price
+
+        # 1回の購入が終わったので、投入されていたお金はいったんクリア
         self.current_amount = 0
         return change
 
     def return_change(self) -> int:
-        """[ビジネスルール] 現在の投入金額をそのままお釣りとして返し、リセットする"""
+        """
+        [ビジネスルール] キャンセル等で「やっぱり買いません」となった場合。
+
+        - いま入っている金額をまるごと返す（お釣りとして返却）
+        - その後、投入金額は0にリセットする
+        """
         change = self.current_amount
         self.current_amount = 0
         return change
 
     def __repr__(self):
+        """
+        デバッグ用表示。
+        print(payment_manager) としたときに
+        "PaymentManager(current_amount=150)" のように可視化できる。
+        """
         return f"PaymentManager(current_amount={self.current_amount})"
-
 ```
 
-- `VALID_COINS`: 投入を許可する硬貨の種類を定義しています。これも純粋なビジネスルールです。
-- `process_purchase()`: このEntityのもう一つの核となるビジネスルールです。単なる価格(`price`)ではなく`Item`オブジェクトそのものを受け取ることで、`UseCase`は`PaymentManager`に「この商品の購入を処理して」と依頼するだけで済み、より安全で責務が明確になります。
+---
 
-## 💡 ユニットテストでEntityの正しさを証明する
+## 🧪 テストはめちゃくちゃ書きやすい
 
-EntityはハードウェアやDBに依存しないため、簡単に単体でテストできます。
+ここまでの2つのEntity (`Item`, `PaymentManager`) は、
+データベースもネットワークもハードウェア（モーターやコインメカ）も知りません。
+
+つまり、**ふつうのPythonオブジェクトとしてそのままテストできます。**
 
 ```python
-# tests/domain/test_entities.py の例
-import pytest
-from domain.entities import PaymentManager, Item
+# tests/domain/test_entities.py のイメージ
+from vending_machine.domain.entities import PaymentManager, Item
 
 def test_有効な硬貨は投入できる():
-    # 1. Arrange (準備)
     pm = PaymentManager()
-
-    # 2. Act (実行)
     pm.insert_coin(100)
     pm.insert_coin(50)
-
-    # 3. Assert (検証)
     assert pm.current_amount == 150
 
-def test_金額が足りていれば購入処理が成功する():
-    # 1. Arrange (準備)
+def test_投入金額が足りていれば購入できてお釣りが返る():
     pm = PaymentManager(current_amount=150)
     tea = Item(slot_id="A1", name="お茶", price=120, stock=10)
 
-    # 2. Act (実行)
     change = pm.process_purchase(tea)
 
-    # 3. Assert (検証)
-    assert change == 30          # お釣りが正しいか
-    assert pm.current_amount == 0 # 投入金額がリセットされたか
+    assert change == 30            # 150円入っていて120円のものを買えば30円お釣り
+    assert pm.current_amount == 0  # 購入後はリセットされている
 
+def test_在庫がない商品はdispenseできない():
+    cola = Item(slot_id="B2", name="コーラ", price=130, stock=0)
+
+    try:
+        cola.dispense()
+        assert False, "在庫0なら例外になるはず"
+    except ValueError as e:
+        assert "在庫切れ" in str(e)
 ```
 
-## 🐍 PythonとC言語の比較（初心者の方へ）
+これが「エンティティが外の事情を知らない」ことの強さです。
+どんな環境でも、ローカルですぐ検証できます。
 
-- Python (オブジェクト指向): `PaymentManager`というクラスが、データ（`current_amount`）とルール（`insert_coin`メソッド）を一つにまとめて管理します。
-- C言語 (手続き型): おそらく、`VendingMachineState`のような巨大な構造体（`struct`）の中に`current_amount`というメンバがあり、`insert_coin(struct VendingMachineState* state, int coin)`のような外部関数がその構造体を変更する、という形になるでしょう。データとロジックが分離しているため、どこで何が変更されるのかを追跡するのが難しくなりがちです。
+---
 
-## 🛡️ このクラス群の鉄則
+## 🐍 Python視点 / C言語視点
 
-Entity層の鉄則は、これまでと全く同じです。
+* 🐍 Python的な設計では、`PaymentManager` のように「状態（current_amount）＋その状態を正しく扱うためのメソッド（insert_coin, process_purchase）」をひとつのまとまりとして扱います。
+  → 「お金のことはこの人に聞けばいい」がはっきりする。
 
-> 何物にも依存するな (Depend on Nothing)
-> 
-- 自動販売機の基本的なルール（「お金が足りなければ買えない」など）は、物理的な筐体のデザインや通信機能の有無が変わっても、不変です。
-- `UseCase`や`Adapters`といった外側のレイヤーについて一切知ってはいけません。
-- Entityは、アプリケーションの他の部分から利用されるだけの存在です。
+* 🔧 C言語的な設計では、よくこうなります：
+
+  * 状態は `struct VendingMachineState { int current_amount; ... };`
+  * ロジックは別の関数 `void insert_coin(struct VendingMachineState* s, int coin)` などで操作する
+  * その結果、「どの関数がどこで状態を壊しているのか」を追うのが難しくなりがち
+
+エンティティとしてクラス化してしまうことで、
+「このデータには、この正しい使い方がセットになっている」という約束を明文化できるのがオブジェクト指向のいいところです。
+
+---
+
+## 🛡️ Entities層の鉄則
+
+> 何物にも依存するな。
+> ただしビジネスルールには絶対に妥協するな。
+
+* `Item` は「在庫がマイナスになる」というありえない状態を拒否します。
+* `PaymentManager` は「足りないお金では売らない」という約束を徹底します。
+* どちらも、ハードウェアやUIやDBに左右されません。
+
+この“純粋な中心”を確立したうえで、次のステップでは
+**UseCase層（usecase/）** に進みます。
+そこでは、複数のEntityを組み合わせて「実際の操作フロー」（お金入れる→商品選ぶ→商品が出る）を実現させていきます。
