@@ -1,6 +1,7 @@
 # 08 View
 
-# 📺 View : `vending_machine/interface_adapters/view_console.py`
+# 📺 View
+###`vending_machine/interface_adapters/view_console.py`
 
 いよいよ一番ユーザー寄りの層、`View` です。
 この章ではコンソールUI（ターミナル上の入出力）を例にして、`ConsoleView` を実装します。

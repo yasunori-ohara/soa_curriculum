@@ -1,347 +1,430 @@
-# 02 Use Case Interactor
+# 02 Use Case
 
-# 👨‍🏫 Use Case Interactor
+# 👨‍🏫 Use Case（アプリケーションの手順を司る層）
+
 ### `vending_machine/usecase/select_item_usecase.py`
 
-`Entity` が「正しい状態とルール」を守る部品だとすると、
-`UseCase` はそれらの部品を組み合わせて「実際の操作の流れ」を実現する役目です。
-
-ここでは、自動販売機の中核となるシナリオである
-**「ユーザーが商品ボタンを押して商品を購入する」** ユースケースを扱います。
-
-このユースケースを担当するのが `SelectItemUseCase` です。
-
-![クリーンアーキテクチャ](../クリーンアーキテクチャ.png)
+### `vending_machine/usecase/insert_coin_usecase.py`
 
 ---
 
-## 🎯 このクラスの役割
+## 🎯 UseCaseとは何か
 
-`SelectItemUseCase` は、自動販売機の「頭脳＝司令塔」です。
-ひとつの「購入」というストーリー全体を正しい順番で進める責任があります。
+UseCaseは「自動販売機の具体的な操作フロー」を表現する層です。
+たとえば次のような場面を考えます。
 
-やっていることを人間の言葉でいうとこうです：
+* 「100円玉を投入した」
+* 「A1のボタンを押して商品を購入した」
 
-1. 押されたボタンのスロット番号から商品を特定する
-2. 投入された金額でそれが買えるか確認する
-3. 問題なければ
+このとき起きる処理は単純ではありません。複数の役割が連携します。
 
-   * 商品を排出するようにハードウェアに指示
-   * お釣りがあれば返すように指示
-   * 在庫を1本減らして保存する
-4. 最終的な結果（出した商品名とお釣り）を画面側に伝える
+* お金の状態を更新する
+* 在庫を確認する
+* お釣りを計算する
+* 商品を物理的に排出するように指示する
+* 在庫を更新して保存する
+* 画面メッセージを整えて表示側に渡す
 
-重要なのは、UseCaseが自分で細かいことはしないことです。
-具体的には：
+この一連の流れを正しい順序で制御するのがUseCaseの役割です。
+ここでは、次の2つのユースケースを扱います。
 
-* 「在庫はある？」の正しい判断は `Item` エンティティが持つルールに任せる
-* 「お金は足りる？お釣りは？」の正しい計算は `PaymentManager` エンティティに任せる
-* 「モーターをどう回す？」のようなハードウェアの詳細はアダプタ層に任せる
-* 「ユーザーにどんな文言で表示する？」はPresenterに任せる
-
-UseCaseはあくまで「次に何をさせるべきか」を順序だてて指示するだけ、という立場です。
+* 💰 `InsertCoinUseCase` …… 硬貨を投入する操作
+* 🥤 `SelectItemUseCase` …… 商品ボタンを押して購入する操作
 
 ---
 
-## ✅ このクラスにあるべき処理 / あってはいけない処理
+## 🧠 UseCase層が担う責任
 
-### ⭕ 含めるべき処理
+UseCase層は「アプリケーション固有の業務手順」を表します。
+Entityを直接操作するのではなく、**Entity同士と外部装置を正しく連携させる“司令塔”** の役割を持ちます。
 
-* **複数のEntityをまたいだ流れの制御（オーケストレーション）**
-  例：
-  `item_repository` から商品を取得する →
-  `payment_manager` に決済させる →
-  `hardware` に排出させる →
-  `item` の在庫を減らす →
-  `item_repository` に保存する
+⭕ UseCaseに含めるべき責務
 
-* **アプリケーション固有の振る舞い**
-  「お金が足りなかったら商品を出してはいけない」
-  「在庫が減ったら保存し直す」など。
+* 複数のEntityを正しい順序で呼び出す（オーケストレーション）
+* 必要な外部処理（在庫保存・ハードウェア制御など）を、対応するインターフェースに依頼する
+* 実行結果を、プレゼンテーション層に渡せる中立なデータ（DTO）にまとめる
 
-* **ユースケースごとの入出力の整形**
-  `SelectItemInputData`（入力DTO）を受け取り、
-  `SelectItemOutputData`（出力DTO）にまとめてPresenterに渡す。
+❌ UseCaseに含めてはいけない責務
 
-### ❌ 含めてはいけない処理
+* 画面表示の文言を決める（Presenterの責務）
+* 物理的なモーター制御の詳細を書く（HardwareAdapter側の責務）
+* DBやメモリなど具体的な保存方法を書く（Repository実装側の責務）
+* エンティティが本来持つべきルールを複製する
+  （例：「在庫があるか？」をUseCase側で直接 `if item.stock > 0` と判定しない。`Item.dispense()` に任せる）
 
-* **Entity本来のルールを重複実装すること**
-  例：`if item.stock > 0:` のような在庫チェックは `Item.dispense()` に任せるべきです。
-  UseCaseが勝手にやるとルールが分散して危険になります。
+> UseCaseは、「何が起きるべきか（ビジネスフロー）」は知っているが、
+> 「どう実装されているか（詳細）」は知らないように設計します。
 
-* **ハードウェアの詳細やデータ保存のやり方**
-  どのポートを叩くとモーターが回るか、DBが何を使ってるか、などはここでは知らない・書かない。
+---
 
-* **UIの見た目や文字列フォーマット**
-  「画面にどう表示するか」は Presenter と View の仕事です。
+## 📂 関連ファイルの位置づけ
 
-
-## 💻 フォルダ構成
+第三巡のフォルダでは、UseCase層は次のファイル群で構成されます。
 
 ```text
 vending_machine/
 ├─ domain/
-│   ├─ entities.py          # Item, PaymentManager など
-│   ├─ errors.py            # ドメインルール違反例外
-│   └─ repositories.py      # DataAccessInterface / HardwareInterface
+│   ├─ entities.py            # Entity: Item, PaymentManagerなど
+│   └─ errors.py              # ドメイン固有の例外
 │
 ├─ usecase/
-│   ├─ dto.py               # InputData / OutputData / ErrorData / ViewModel
-│   ├─ boundaries.py        # InputBoundary / OutputBoundary
-│   ├─ insert_coin_usecase.py    <- いまここ
-│   └─ select_item_usecase.py    <- いまここ
+│   ├─ dto.py                 # DTO / ViewModel（データの入出力用の箱）
+│   ├─ boundaries.py          # インターフェース（契約）
+│   ├─ insert_coin_usecase.py # 硬貨投入ユースケース
+│   └─ select_item_usecase.py # 商品購入ユースケース
+│
+├─ interface_adapters/
+│   ├─ controller.py          # 入力受付（ボタン操作など）
+│   ├─ presenter.py           # 表示用メッセージ整形
+│   ├─ view_console.py        # 実際の入出力（CLI想定）
+│   ├─ data_access.py         # 在庫リポジトリ実装（メモリ版など）
+│   └─ hardware_adapter.py    # ハードウェア実装（モーター/返却動作など）
+│
+└─ main.py                    # 依存性をつなぎ合わせて起動する場所
 ```
 
-## 💻 ソースコード（`SelectItemUseCase`）
+✍ 用語整理：
 
-このコードは、次のファイル・クラスを前提にしています：
+* `boundaries.py`
+  → UseCaseが外部に依頼するための「契約インターフェース」を定義します。
+  例：`ItemRepository`（在庫取得/保存の契約）、`HardwareInterface`（ハード制御の契約）、
+  `SelectItemOutputBoundary`（Presenterに結果を伝えるための契約）
 
-* `usecase/dto.py`
+* `dto.py`
+  → レイヤー間を渡るデータの箱（DTO）と、UI向けのViewModelを定義します。
 
-  * `SelectItemInputData`
-  * `SelectItemOutputData`
-* `usecase/boundaries.py`
+UseCaseは、上の2つ（boundaries / dto）を使って他レイヤーとやり取りします。
 
-  * `SelectItemInputBoundary`
-  * `SelectItemOutputBoundary`
-  * `ItemDataAccessInterface`
-  * `HardwareInterface`
-* `domain/entities.py`
+---
 
-  * `Item`
-  * `PaymentManager`
+## 💰 例1: `InsertCoinUseCase`
 
-では、完成形を見ていきます👇
+硬貨が投入されたときの流れを扱うユースケースです。
+このユースケースは「お金の状態を更新する」という1つの目的に特化しています。
+
+### 👀 責務のイメージ
+
+* ユーザーが100円玉を入れる
+* `PaymentManager.insert_coin(100)` を呼び、ビジネスルールどおりに金額を積み上げる
+* 現在の投入金額を Presenter に渡して、画面に反映させる
+
+ここでは、ハードウェア制御も在庫処理も発生しません。
+「支払い状態（投入金額）を更新して通知する」というシンプルなユースケースです。
+
+### 💻 コード例（`insert_coin_usecase.py`）
+
+```python
+# vending_machine/usecase/insert_coin_usecase.py
+
+from vending_machine.usecase.boundaries import (
+    InsertCoinInputBoundary,        # Controllerが呼び出す入り口
+    InsertCoinOutputBoundary,       # Presenterが実装する出口
+)
+from vending_machine.usecase.dto import (
+    InsertCoinInputData,            # Controller -> UseCase への入力DTO
+    InsertCoinOutputData,           # UseCase -> Presenter への出力DTO
+)
+from vending_machine.domain.entities import PaymentManager
+
+
+class InsertCoinUseCase(InsertCoinInputBoundary):
+    """
+    硬貨投入ユースケース。
+    ユーザーが硬貨を入れた際のビジネスフローを制御する。
+
+    このクラスは「アプリケーションとして何をするべきか」を知っているが、
+    - 入出力の方法（CLIかGUIか）
+    - 表示文言の最終形
+    などは知らない。
+    """
+
+    def __init__(
+        self,
+        presenter: InsertCoinOutputBoundary,
+        payment_manager: PaymentManager,
+    ):
+        """
+        presenter:
+            結果をユーザー向けのメッセージに整形する担当。
+            InsertCoinOutputBoundary インターフェースを満たす必要がある。
+
+        payment_manager:
+            現在の投入金額などを保持・管理するエンティティ。
+            1台の自販機で共有される「お金の状態」を表す。
+        """
+        self._presenter = presenter
+        self._payment_manager = payment_manager
+
+    def handle(self, input_data: InsertCoinInputData) -> None:
+        """
+        ユーザーが硬貨を投入したときに呼び出されるメイン処理。
+
+        1. PaymentManager にコイン投入を反映する
+        2. 現在の投入金額をDTO化する
+        3. Presenterに渡す
+        """
+        # 1. ドメインエンティティに処理を委譲する
+        #    - 受け付け可能な硬貨かどうかは PaymentManager が判断する
+        #      (UseCase側では重複チェックしない)
+        self._payment_manager.insert_coin(input_data.coin)
+
+        # 2. Presenterに渡すための出力DTOを作る
+        output_data = InsertCoinOutputData(
+            current_amount=self._payment_manager.current_amount
+        )
+
+        # 3. Presenterに結果を通知する
+        self._presenter.present_coin_inserted(output_data)
+```
+
+---
+
+## 🥤 例2: `SelectItemUseCase`
+
+購入ボタンが押されたときのフローをまとめます。
+これは本教材の中心となるユースケースです。
+
+### 📘 処理の全体像
+
+ユーザーが「A1のボタン」を押した場合、次のことが起こります。
+
+1. スロットID（例: "A1"）から `Item`（商品情報＋在庫）を取得する
+   → `ItemRepository` に依頼
+
+2. 現在の投入金額でその商品が買えるか確認する
+   → `PaymentManager` に依頼
+
+3. 問題なければ購入を成立させる
+
+   * お釣りを計算する
+   * 商品を物理的に排出するように依頼する
+     → `HardwareInterface.dispense_item(slot_id)`
+   * お釣りがあれば返却動作を依頼する
+     → `HardwareInterface.return_change(amount)`
+   * 商品在庫を1つ減らす (`Item.dispense()` を呼ぶ)
+   * 変更後の商品の状態を保存する
+     → `ItemRepository.save(item)`
+
+4. 最終的な結果
+
+   * 「どの商品を出したか」
+   * 「いくらお釣りを返したか」
+     をDTOとしてまとめ、Presenterに渡す
+
+→ UseCaseは、フローの順序や組み合わせを担当します。
+→ ただし、細かいルール（在庫があるか/お金が足りるか）はEntityに任せます。
+
+### 💻 コード例（`select_item_usecase.py`）
 
 ```python
 # vending_machine/usecase/select_item_usecase.py
 
-# -----------------------------------------------------------------------------
-# 必要な型（契約）やデータの定義をインポート
-# -----------------------------------------------------------------------------
 from vending_machine.usecase.boundaries import (
-    SelectItemInputBoundary,
-    SelectItemOutputBoundary,
-    ItemDataAccessInterface,
-    HardwareInterface,
+    SelectItemInputBoundary,        # Controllerが呼ぶ入り口
+    SelectItemOutputBoundary,       # Presenterが実装する出口
+    ItemRepository,                 # 在庫アクセスの契約
+    HardwareInterface,              # ハードウェア制御の契約
 )
 from vending_machine.usecase.dto import (
-    SelectItemInputData,
-    SelectItemOutputData,
+    SelectItemInputData,            # Controller -> UseCase 入力DTO
+    SelectItemOutputData,           # UseCase -> Presenter 出力DTO
 )
 from vending_machine.domain.entities import Item, PaymentManager
 
 
-# -----------------------------------------------------------------------------
-# SelectItemUseCase
-# - クラス図の位置: UseCase
-# - 同心円図の位置: Use Cases（内側から2番目の円）
-#
-# このクラスは「あるスロットの商品を買いたい」という1つの要求を処理する。
-# Controller から呼び出される想定。
-# -----------------------------------------------------------------------------
 class SelectItemUseCase(SelectItemInputBoundary):
     """
-    「商品を選択して購入する」というユースケースの実装。
+    商品購入ユースケース。
+    「指定スロットの商品を購入したい」という要求を処理する。
 
-    このクラスは「制御の流れ」を持つが、
-    実際の処理の詳細は他のオブジェクトに委ねる。
-        - お金の正しさ: PaymentManager
-        - 在庫更新ルール: Item
-        - ハードウェア制御: HardwareInterface実装
-        - データ永続化: ItemDataAccessInterface実装
-        - 出力の整形: Presenter
+    このクラスは、1回の購入に関わる流れ全体を管理する。
+    ただし、在庫の正しさ・支払いの正しさ・ハードウェア制御の詳細は
+    それぞれの担当に委譲する。
     """
 
     def __init__(
         self,
         presenter: SelectItemOutputBoundary,
-        item_repository: ItemDataAccessInterface,
+        item_repository: ItemRepository,
         hardware: HardwareInterface,
     ):
         """
-        [依存性の注入 / Dependency Injection]
+        presenter:
+            購入結果をユーザー向けの表示用データに整形する担当。
+            SelectItemOutputBoundary インターフェースを満たす必要がある。
 
-        UseCaseは、自分が直接newしません。
-        代わりに「こういう能力を持った相手が欲しい」とだけ宣言し、
-        実際に誰が来るかは外側 (main.py など) で決めてもらいます。
+        item_repository:
+            在庫や価格など、スロットに関するデータへアクセスする窓口。
+            具体的にメモリで持つかDBで持つかは知らない。
 
-        - presenter:
-            結果をユーザー表示用の形式に変換する役 (Presenter)
-        - item_repository:
-            商品情報・在庫を取得/保存してくれる役
-        - hardware:
-            「商品を物理的に排出して」「お釣り出して」と指示できる相手
+        hardware:
+            「商品を排出してほしい」「お釣りを返してほしい」といった
+            物理的な動作を依頼する窓口。UseCaseは物理詳細を知らない。
         """
         self._presenter = presenter
         self._item_repository = item_repository
         self._hardware = hardware
 
-    def handle(self, input_data: SelectItemInputData, payment_manager: PaymentManager):
+    def handle(self, input_data: SelectItemInputData, payment_manager: PaymentManager) -> None:
         """
-        [ユースケース本体 / アプリケーションフロー管理]
-
-        Controller から呼び出される入り口。
-        ここで「購入」という一連の流れをオーケストレーションする。
+        購入処理の本体。
 
         引数:
-            input_data: Controllerが組み立てた入力DTO
-                        例: SelectItemInputData(slot_id="A1")
-            payment_manager: 現在の投入金額などを保持しているエンティティ。
-                             同じ購入トランザクションの間だけ使われる。
+            input_data:
+                購入対象スロットを示すDTO（例: slot_id="A1"）
+            payment_manager:
+                現在の投入金額などの状態を持つエンティティ
 
-        戻り値:
-            なし（ただし最後にPresenterへ結果を渡す）
+        処理手順:
+            1. 商品の取得
+            2. 決済処理
+            3. ハードウェアへの指示
+            4. 在庫の更新と保存
+            5. Presenterへの通知
         """
 
-        # ---------------------------------------------------------
-        # 手順1. スロットIDから商品を取得する
-        # ---------------------------------------------------------
-        item = self._item_repository.find_by_slot_id(input_data.slot_id)
+        # -------------------------------------------------
+        # 1. スロットIDから商品情報を取得する
+        # -------------------------------------------------
+        item: Item | None = self._item_repository.find_by_slot_id(input_data.slot_id)
         if not item:
-            # 商品自体が存在しない/売り切れケースは、正式には専用のエラー型にしてもよい。
+            # スロット自体が存在しない、あるいは未登録の場合
             raise ValueError("指定されたスロットに商品はありません。")
 
-        # ---------------------------------------------------------
-        # 手順2. 決済処理（お金まわりのルールはPaymentManagerに任せる）
-        #   - 十分なお金が入っていなければ例外が出る
-        #   - お釣りの計算もここで行われる
-        #   - 成功したら投入金額は0にリセットされる
-        # ---------------------------------------------------------
+        # -------------------------------------------------
+        # 2. 決済処理を行う（お金が足りるか？ お釣りはいくらか？）
+        #    ルールは PaymentManager が知っている
+        # -------------------------------------------------
         change = payment_manager.process_purchase(item)
+        # ここでお釣りが算出され、payment_manager.current_amount は0にリセットされる
 
-        # ---------------------------------------------------------
-        # 手順3. ハードウェアへの指示（UseCaseは「何をしてほしいか」だけ言う）
-        #   a. 商品を物理的に排出してほしい
-        #   b. お釣りがあるなら返してほしい
-        #   具体的にモーターをどう回すか等はHardwareInterface実装側の責務
-        # ---------------------------------------------------------
+        # -------------------------------------------------
+        # 3. ハードウェアへの指示
+        #    UseCaseは「何をしてほしいか」だけを伝える
+        # -------------------------------------------------
+        # 3-1. 商品を物理的に排出するよう依頼
         self._hardware.dispense_item(item.slot_id)
 
+        # 3-2. お釣りがあれば返金動作を依頼
         if change > 0:
             self._hardware.return_change(change)
 
-        # ---------------------------------------------------------
-        # 手順4. 在庫を1本減らす（在庫の妥当性ルールはItem自身が持っている）
-        #   - Item.dispense() 内で「在庫が無いなら売っちゃダメ」が保証される
-        # ---------------------------------------------------------
-        item.dispense()
-
-        # ---------------------------------------------------------
-        # 手順5. 変更後の商品の状態を保存する
-        #   - どう保存するか(DB? メモリ? ファイル?) は
-        #     item_repositoryの実装側が決める
-        # ---------------------------------------------------------
+        # -------------------------------------------------
+        # 4. 在庫を1本減らし、保存する
+        #    在庫の妥当性チェックは Item.dispense() が担当する
+        # -------------------------------------------------
+        item.dispense()            # 在庫が0ならここで例外になる
         self._item_repository.save(item)
 
-        # ---------------------------------------------------------
-        # 手順6. 結果をPresenterに渡す
-        #   - UseCaseは「どの商品名を出して、いくらお釣りが出たか」だけ伝える
-        #   - 文言や見た目の整形はPresenter側の責務
-        # ---------------------------------------------------------
+        # -------------------------------------------------
+        # 5. Presenterに渡すための結果をDTOにまとめる
+        #    UseCaseはUI用の表現は行わず、事実のみ伝える
+        # -------------------------------------------------
         output_data = SelectItemOutputData(
             item_name=item.name,
             change=change,
         )
-        self._presenter.present(output_data)
+
+        self._presenter.present_purchase_result(output_data)
 ```
 
 ---
 
-## 🔍 コードの読みどころ
+## 📦 DTO（Data Transfer Object）とViewModel
 
-* `class SelectItemUseCase(SelectItemInputBoundary):`
-  → これは「このクラスは `SelectItemInputBoundary`（ユースケースの入り口インターフェース）を満たす正規の実装ですよ」という宣言です。
-  つまり、「ユースケースの実体」であることを明示しています。
+UseCaseは、外部とやり取りする際に「DTO」というデータ専用の入れ物を使います。
+これは `vending_machine/usecase/dto.py` に定義されます。
 
-* `__init__()`
-  UseCaseは `presenter`, `item_repository`, `hardware` に依存していますが、
-  どれも「インターフェース越し」に依存しています。
-  なので、このクラスは特定のDBや特定のハードウェアにロックインされません。
-
-* `handle()`
-  1メソッドの中に、アプリケーションとしての「買う」という物語のすべてがまとまっています。
-  ただしビジネスルール自体はEntityに委譲しています。
-  UseCaseは“順番と連携”に集中します。
-
----
-
-## 💡 ユニットテストの考え方
-
-UseCaseは、すべての外部依存（DB、ハードウェア、表示）をインターフェース経由で扱います。
-
-つまりテストでは、それらを「偽物（フェイク／モック）」に置き換えるだけで、
-物理ハードも本物DBもなしでロジック全体を検証できます。
+例として、ここで利用した型は以下のようなイメージです。
 
 ```python
-# tests/usecase/test_select_item_usecase.py のイメージ例
+# vending_machine/usecase/dto.py
+from dataclasses import dataclass
 
-def test_お金が足りていれば商品とお釣りが正しく処理される():
-    # 1. Arrange: 依存先の「偽物」を準備する
-    fake_presenter = FakePresenter()
-    fake_item_repo = FakeItemRepository({
-        "A1": Item(slot_id="A1", name="お茶", price=120, stock=10)
-    })
-    fake_hardware = FakeHardwareAdapter()
+# 硬貨投入の入力DTO
+@dataclass(frozen=True)
+class InsertCoinInputData:
+    coin: int
 
-    # 投入金額が十分にある状態にする
-    payment_manager = PaymentManager(current_amount=500)
+# 硬貨投入の出力DTO
+@dataclass(frozen=True)
+class InsertCoinOutputData:
+    current_amount: int  # 現在の投入合計
 
-    # ユースケース本体を作る
-    use_case = SelectItemUseCase(
-        presenter=fake_presenter,
-        item_repository=fake_item_repo,
-        hardware=fake_hardware,
-    )
+# 商品購入の入力DTO
+@dataclass(frozen=True)
+class SelectItemInputData:
+    slot_id: str         # "A1" など
 
-    # 2. Act: 購入フローを実行
-    input_data = SelectItemInputData(slot_id="A1")
-    use_case.handle(input_data, payment_manager)
+# 商品購入の出力DTO
+@dataclass(frozen=True)
+class SelectItemOutputData:
+    item_name: str       # 出した商品の名前
+    change: int          # 返却されたお釣りの金額
 
-    # 3. Assert: 正しく指揮できているか？
-    assert fake_hardware.dispensed_slot_id == "A1"
-    assert fake_hardware.returned_change == 380  # 500 - 120
-    assert fake_item_repo.find_by_slot_id("A1").stock == 9
-    assert payment_manager.current_amount == 0
-    assert fake_presenter.last_output.item_name == "お茶"
+# View向けの最終表示データ（Presenterが生成する）
+@dataclass
+class VendingMachineViewModel:
+    display_text: str = ""
 ```
 
-ポイントは「UseCaseそのものは、printもしないし、DBにも触れないし、GPIOも叩かない」ということ。
-UseCaseをテストできるなら、あなたのビジネスロジックはほぼ安全に育てられる、ということでもあります。
+* `@dataclass(frozen=True)` は「イミュータブル（後から書き換え禁止）」です。
+
+  * Controller から UseCase に渡す入力
+  * UseCase から Presenter に渡す出力
+    など、境界を越えるデータは勝手に変更されないほうが安全なので凍結します。
+
+* `VendingMachineViewModel` は凍結しません。
+  Presenterが更新し、Viewがそれを表示します。
+
+これらの詳細（DTOとViewModel）は、後の章「Data Structures」で改めて整理します。
 
 ---
 
-## 🐍 Python vs 🔧 C言語でもう一度
+## 🧪 なぜUseCaseはテストしやすいのか
 
-* 🐍 Python側では、`SelectItemUseCase` が `HardwareInterface` に命令します。
-  この時点では「商品を排出して」という抽象的なお願いしかしません。
+UseCaseは、具体的なハードウェアや保存先を知りません。
+代わりに、抽象インターフェース（`boundaries.py` で定義されたもの）に依存します。
 
-* 🔧 Cっぽい書き方だと、次のような危険が起きがちです：
+テスト時には、次のような「フェイク実装」を渡します。
 
-  * `PORTB |= (1 << PB3);` のような、特定ピンを直接叩く命令がビジネスロジックのど真ん中に生えてくる。
-  * ハードウェアが変わった瞬間にビジネスロジックのコード全体を書き換えるハメになる。
+* フェイクの `ItemRepository`（メモリ上の辞書など）
+* フェイクの `HardwareInterface`（呼ばれた内容を記録するだけ）
+* フェイクの `Presenter`（受け取ったDTOを保持しておくだけ）
 
-クリーンアーキテクチャでは逆にします。
-
-> ビジネスロジック（買うという行為）は不変であるべき。
-> ハードウェア（どう排出するか）は交換可能な詳細であるべき。
-
-UseCaseはその分離を徹底する場所です。
+これにより、実機もDBもなく、ローカル環境だけでユースケースのロジック全体を検証できます。
 
 ---
 
-## 🛡️ このクラスの鉄則
+## 🐍 Python と 組み込み的な書き方の比較
 
-> ビジネスの流れを指揮せよ。
-> ただし細部のやり方には口を出すな。
-> (Orchestrate the business flow, but delegate the details.)
+🧠 クリーンアーキテクチャ的なPython設計
 
-* UseCaseは「どの順番で・何をするか」を決める。
-* でも、実際のやり方（在庫の正当性チェックや、ハードをどう動かすか、表示をどうするか）は、それぞれの担当（EntityやAdapter）に任せる。
-* この分離のおかげで、同じユースケースをGUIでもCLIでも物理筐体でも使い回すことができます。
+* `SelectItemUseCase` が「購入」というシナリオの順序と条件を定義する。
+* 在庫の正しさは `Item`、支払いの正しさは `PaymentManager`、
+  ハードの制御は `HardwareInterface`、表示整形は `Presenter` に任せる。
+* 責務が明確に分かれるため、部品ごとに交換可能。
+
+🔧 組み込みでありがちな一体型の実装
+
+* メインループ（または割り込みハンドラ）の中で
+  ボタン入力→在庫チェック→金額判定→モーター操作→LED表示
+  をひと続きの処理として記述しがち。
+* 修正時に全体へ影響が波及しやすい。テストも実機依存になりやすい。
+
+クリーンアーキテクチャでは、この「全部まとめて1か所に書く」という状態を避け、
+**ユースケース単位に責務を分離**することで、保守性・テスト性・交換性を高めます。
 
 ---
 
-この `SelectItemUseCase` を軸に、
-次は `usecase/dto.py` と `usecase/boundaries.py` を正式に定義していきます。
-DTOは「どんな形のデータを受け渡すか」、boundariesは「誰がどんなメソッドを持っていれば協力できるのか」という契約書です。
+## 🛡 UseCase層の鉄則
+
+> ビジネスフローを管理せよ。
+> しかし詳細実装（保存方法・表示形式・ハード駆動）は他者に委ねよ。
+
+* UseCaseは、ユーザーの操作に対する正式な応答手順を定義します。
+* エンティティのルールを尊重し、外部とのやり取りはインターフェース越しに依頼します。
+* UI・ハードウェア・データ保存方法が変わっても、UseCaseは変わらない設計を目指します。
+
+次章では、この「インターフェース越しの依頼」を可能にする `boundaries.py`（境界インターフェース）を扱います。
+そこでは、UseCaseが外部に対して「こういう機能を持っていてほしい」と要求する契約を定義します。

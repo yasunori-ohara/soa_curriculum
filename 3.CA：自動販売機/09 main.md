@@ -37,66 +37,96 @@
 
 ```python
 # vending_machine/main.py
+
 # -----------------------------------------------------------------------------
-# 🎬 Composition Root
-# -----------------------------------------------------------------------------
-# ここで全ての実装をnewして接続し、アプリケーションを起動する。
-# クリーンアーキテクチャでは「外側」が「内側」に依存するため、
-# 依存の向きは main.py から一方向に注入される。
+# 🎬 Composition Root (アプリの配線係)
+# ここですべての具体実装を new して、依存として注入していく。
+# 各層が勝手にお互いを new しないのがポイント。
 # -----------------------------------------------------------------------------
 
 from vending_machine.domain.entities import PaymentManager
-from vending_machine.interface_adapters.controller import VendingMachineController
-from vending_machine.interface_adapters.presenter import VendingMachinePresenter
-from vending_machine.interface_adapters.view_console import ConsoleView
+from vending_machine.usecase.select_item_usecase import SelectItemUseCase
 from vending_machine.interface_adapters.data_access import InMemoryItemDataAccess
 from vending_machine.interface_adapters.hardware_adapter import ConsoleHardwareAdapter
-from vending_machine.usecase.insert_coin_usecase import InsertCoinUseCase
-from vending_machine.usecase.select_item_usecase import SelectItemUseCase
+from vending_machine.usecase.dto import VendingMachineViewModel
+from vending_machine.interface_adapters.presenter import VendingMachinePresenter
+from vending_machine.interface_adapters.controller import VendingMachineController
+from vending_machine.interface_adapters.view_console import ConsoleView
 
-# -----------------------------------------------------------------------------
-# 🧩 各コンポーネントの生成
-# -----------------------------------------------------------------------------
+
 def main():
-    # --- 永続化層（データアクセス） ---
-    item_repository = InMemoryItemDataAccess()
-
-    # --- ドメイン層の状態オブジェクト ---
+    # -----------------------------------------------------------------
+    # 1. ドメインレベルの状態オブジェクト
+    #    - PaymentManager は「現在いくら投入されているか？」を保持するエンティティ。
+    #    - 自販機が動いているあいだ共通で使うので、ここで1つだけ作る。
+    # -----------------------------------------------------------------
     payment_manager = PaymentManager()
 
-    # --- 外部インターフェース（ハードウェア） ---
-    hardware = ConsoleHardwareAdapter()
+    # -----------------------------------------------------------------
+    # 2. Repository(在庫アクセス) と Hardware(物理インターフェース)
+    #    - UseCase はインターフェースだけ知っていて、中身を知らない。
+    #    - ここで具体実装を決めて、あとで渡す。
+    # -----------------------------------------------------------------
+    item_repository = InMemoryItemDataAccess()        # ← InMemory版の在庫リポジトリ
+    hardware = ConsoleHardwareAdapter()               # ← ハードウェアアダプタ（printで代用）
 
-    # --- プレゼンター & ViewModel ---
-    presenter = VendingMachinePresenter()
+    # -----------------------------------------------------------------
+    # 3. ViewModel & Presenter
+    #    - Presenter は UseCase の結果を「ユーザー向けメッセージ」に翻訳して
+    #      ViewModel に書き込む。
+    #    - View は ViewModel を読むだけでOKになる。
+    # -----------------------------------------------------------------
+    view_model = VendingMachineViewModel()
+    presenter = VendingMachinePresenter(view_model=view_model)
 
-    # --- ユースケース層 ---
-    insert_coin_use_case = InsertCoinUseCase(presenter, payment_manager)
-    select_item_use_case = SelectItemUseCase(
-        presenter,
-        item_repository,
-        hardware,
-        payment_manager
+    # -----------------------------------------------------------------
+    # 4. UseCase
+    #    - SelectItemUseCase は
+    #        * presenter            … 出力先（結果をどう見せるか）
+    #        * item_repository       … 在庫を読む/書く
+    #        * hardware              … 商品排出・お釣り返却の指示先
+    #    - PaymentManager は購入処理のたびに引数で渡す設計なので、
+    #      UseCaseのコンストラクタでは保持しません。
+    # -----------------------------------------------------------------
+    select_item_usecase = SelectItemUseCase(
+        presenter=presenter,
+        item_repository=item_repository,
+        hardware=hardware,
     )
 
-    # --- コントローラ層 ---
+    # -----------------------------------------------------------------
+    # 5. Controller
+    #    - Controller はユーザーの操作を受け付けて、
+    #      DTOを組み立て、該当するUseCaseを呼ぶ「受付係」。
+    #    - Controller は現在の投入金額（PaymentManager）を握っておく。
+    #      ユーザーがコインを入れる→さらに入れる→最後に買う、をつなげるため。
+    # -----------------------------------------------------------------
     controller = VendingMachineController(
-        insert_coin_use_case=insert_coin_use_case,
-        select_item_use_case=select_item_use_case
+        select_item_usecase=select_item_usecase,
+        payment_manager=payment_manager,
     )
 
-    # --- View層（UI） ---
-    view = ConsoleView(controller=controller, presenter=presenter)
+    # -----------------------------------------------------------------
+    # 6. View
+    #    - View はユーザーと向き合う最外層。
+    #    - ユーザーからの操作を Controller に渡し、
+    #      Presenter が更新した ViewModel を画面に出すだけ。
+    # -----------------------------------------------------------------
+    view = ConsoleView(
+        controller=controller,
+        view_model=view_model,
+        payment_manager=payment_manager,
+    )
 
-    # --- 実行開始 ---
+    # -----------------------------------------------------------------
+    # 7. 実行開始
+    # -----------------------------------------------------------------
     view.run()
 
 
-# -----------------------------------------------------------------------------
-# 🚀 エントリポイント
-# -----------------------------------------------------------------------------
 if __name__ == "__main__":
     main()
+
 ```
 
 ---
