@@ -1,52 +1,60 @@
-# SOA-02
+# SOA-02 : 📦 `external_services/inventory_service.py` (外部サービス)
 
-```markdown
-## external_services/inventory_service.py
+`SOA-01` で概説した推奨される開発順序に従い、まずは連携先となる外部サービス、すなわち模擬的な「在庫管理サービス」から実装を始めます。
 
-それではSOAを適用したプログラムの解説を、開発の推奨順序に従って進めていきましょう。
+## 🎯 この章のゴール
 
-SOAでは、まず連携先となる外部サービスがどのような「契約（API）」を提供しているかを理解することが起点となります。したがって、今回はまず模擬的な外部サービスである**`external_services/inventory_service.py`**から説明を始めるのが最も自然です。
+  * 外部サービスが、自分たちのアプリケーションとは **独立したコンポーネント** であることを理解する。
+  * 外部サービスが提供する **契約（API/メソッド）** を定義する。
+  * この模擬サービスが、後のステップで「注文受付サービス」から **呼び出される側** になることを認識する。
 
----
-### 1. このファイルの役割：独立した「在庫管理サービス」
+-----
 
-この`external_services/inventory_service.py`ファイルは、私たちの「注文受付アプリケーション」とは完全に独立した、別のビジネスコンポーネントを表現しています。
+## 🏢 このファイルの役割：独立した「在庫管理サービス」
 
-これは、倉庫管理チームが開発・運用している、独立した「在庫管理サービス」だと考えてください。このサービスは、自分自身のデータベース（`_products_stock`）を持ち、「在庫を確認する」「在庫を減らす」というビジネス能力を、明確なインターフェース（メソッド）を通じて外部に公開しています。
+この `external_services/inventory_service.py` ファイルは、私たちの「注文受付アプリケーション」とは **完全に独立した、別のビジネスコンポーネント** を表現しています。
 
-私たちの「注文受付サービス」は、この独立したサービスを**利用者（クライアント）**として呼び出すことになります。
+これは、倉庫管理チームが開発・運用している、独立した「在庫管理サービス」だと考えてください 🏭。このサービスは、自分自身のデータベース（今回は `_products_stock` という辞書）を持ち、「在庫を確認する」「在庫を減らす」というビジネス能力を、明確なインターフェース（メソッド）を通じて外部に公開しています。
 
-### 2. ソースコードの詳細解説
+私たちの「注文受付サービス」（`use_cases` など）は、この独立したサービスを **利用者（クライアント）** として呼び出すことになります。
 
-`InventoryService` クラス
+-----
+
+## 💻 ソースコードの詳細解説
+
+### `InventoryService` クラス
+
 このクラスが、外部サービスそのものを模倣しています。現実のシステムでは、これは別のサーバーで動作しているWeb APIかもしれませんし、共有のメッセージキューかもしれません。
 
-- `__init__(self)`:
-このサービスが管理する、独自の在庫データベース（`_products_stock`）を初期化します。重要なのは、このデータが「注文受付サービス」が持つ`ProductRepository`のデータとは完全に分離されている点です。
+  * **`__init__(self)`**:
+    このサービスが管理する、独自の在庫データベース（`_products_stock`）を初期化します。重要なのは、このデータが「注文受付サービス」が持つ `InMemoryProductRepository` のデータとは **完全に分離されている** 点です。
+  * **`add_stock(...)`**:
+    在庫を追加するための公開メソッド（契約）です。外部から在庫を初期化するために使います。
+  * **`check_stock(...)`**:
+    在庫が十分かを確認するための公開メソッド（契約）です。`True` か `False` を返します。「注文受付サービス」は、このメソッドを呼び出して注文可能か判断します。
+  * **`reduce_stock(...)`**:
+    在庫を減らす（引き当てる）ための公開メソッド（契約）です。在庫が不足している場合は例外を発生させます。「注文受付サービス」は、注文確定時にこのメソッドを呼び出します。
+  * **`get_stock(...)`**:
+    現在の在庫数を取得するための公開メソッド（契約）です。
 
-- `add_stock(...)`:
-このサービスが外部に公開している「契約」の一つです。在庫を追加するためのメソッドです。
+-----
 
-- `check_stock(...)`:
-在庫が十分かを確認するための「契約」です。`True`か`False`を返します。
+## 🏛️ このコンポーネントの鉄則
 
-- `reduce_stock(...)`:
-在庫を減らすための「契約」です。在庫が不足している場合は例外を発生させます。
+  * **自己完結している:** 在庫管理に関するすべてのデータとロジックは、このサービス内にカプセル化されています。
+  * **独立している:** このサービスは、「注文受付サービス」の存在を **一切知りません**。ただ、不特定多数のクライアント（注文受付サービスを含む）からの要求に応えるだけです。
+  * **明確な契約を持つ:** 外部のクライアントは、このサービスが公開しているメソッド（`check_stock` など）だけを頼りに連携します。内部の `_products_stock` が辞書なのか、巨大なデータベースなのかを知る必要はありません。
 
-### 3. このコンポーネントの鉄則
+-----
 
-自己完結している: 在庫管理に関するすべてのデータとロジックは、このサービス内にカプセル化されています。
+## 📄 `external_services/inventory_service.py` の実装
 
-独立している: このサービスは、「注文受付サービス」の存在を一切知りません。ただ、不特定多数のクライアントからの要求に応えるだけです。
-
-明確な契約を持つ: 外部のクライアントは、このサービスが公開しているメソッド（`check_stock`など）だけを頼りに連携します。内部の`_products_stock`が辞書なのか、巨大なデータベースなのかを知る必要はありません。
-
----
-### external_services/inventory_service.py
-``` Python
+```python:external_services/inventory_service.py
 # 依存性のルール:
 # このファイルは、私たちのアプリケーションとは独立した外部サービスを模倣しています。
-# したがって、私たちのアプリケーションのどのファイルにも依存しません。
+# したがって、私たちのアプリケーションのどのファイル
+# (domain, use_cases, interface_adapters, infrastructure) にも依存しません。
+# Python標準ライブラリのみ使用可能です。
 
 class InventoryService:
     """
@@ -58,31 +66,39 @@ class InventoryService:
     明確なインターフェース（メソッド）を通じて外部に提供する。
     """
     def __init__(self):
-        # このサービスが専有する、独立した在庫データベース
+        # このサービスが専有する、独立した在庫データベース（辞書で模倣）
         self._products_stock: dict[str, int] = {}
-        print("📦 在庫管理サービスが起動しました。")
+        print("📦 Mock Inventory Service initialized.")
 
     def add_stock(self, product_id: str, quantity: int):
-        """在庫を追加するためのインターフェース"""
-        self._products_stock[product_id] = self._products_stock.get(product_id, 0) + quantity
-        print(f"📦 在庫追加: {product_id} の在庫が {self._products_stock[product_id]} になりました。")
+        """【契約/API】在庫を追加するためのインターフェース"""
+        current_stock = self._products_stock.get(product_id, 0)
+        self._products_stock[product_id] = current_stock + quantity
+        print(f"📦 Inventory Added: {product_id}, New Stock: {self._products_stock[product_id]}")
 
     def check_stock(self, product_id: str, quantity: int) -> bool:
-        """在庫が十分か確認するためのインターフェース"""
+        """【契約/API】在庫が十分か確認するためのインターフェース"""
         stock = self._products_stock.get(product_id, 0)
+        print(f"📦 Checking stock for {product_id}: Available={stock}, Required={quantity}")
         return stock >= quantity
 
     def reduce_stock(self, product_id: str, quantity: int):
-        """在庫を削減するためのインターフェース"""
+        """【契約/API】在庫を削減（引当）するためのインターフェース"""
+        print(f"📦 Attempting to reduce stock for {product_id} by {quantity}")
         if not self.check_stock(product_id, quantity):
-            raise ValueError(f"在庫不足: {product_id}")
+            # 在庫不足の場合はエラー（現実のAPIはエラーコードなどを返す）
+            raise ValueError(f"Insufficient stock for product {product_id}")
         
         self._products_stock[product_id] -= quantity
-        print(f"📦 在庫削減: {product_id} の在庫が {self._products_stock[product_id]} になりました。")
+        print(f"📦 Stock Reduced: {product_id}, Remaining Stock: {self._products_stock[product_id]}")
 
     def get_stock(self, product_id: str) -> int:
-        """現在の在庫数を取得するためのインターフェース"""
-        return self._products_stock.get(product_id, 0)
-```
+        """【契約/API】現在の在庫数を取得するためのインターフェース"""
+        stock = self._products_stock.get(product_id, 0)
+        print(f"📦 Getting stock for {product_id}: {stock}")
+        return stock
 
 ```
+
+これで連携先の「仕様」が確定しました。
+次のステップ（`SOA-03`）では、私たちのアプリケーション側（`use_cases`）で、この外部サービスに接続するための「理想の鍵穴（インターフェース）」を定義します。
