@@ -1,116 +1,120 @@
-# DDD-06
+# DDD-06 : 🟡 `interface_adapters/repositories.py` (リポジトリ実装)
 
-```markdown
-## `use_cases/process_order.py` (ユースケース)
+`DDD-05` では `UseCase` が `IOrderRepository` という新しい「鍵穴（インターフェース）」を要求するようになりました。
+この章では、その鍵穴に差し込むための「具体的な鍵（実装クラス）」を、この `Interface Adapters` レイヤーに作成します。
 
-ドメインモデルが豊か（リッチ）になったことで、このユースケースの役割がどのように変化したかに注目ください。
+## 🎯 この章のゴール
 
----
-### 1. このファイルの役割：集約を指揮する「コーディネーター」
+  * `CA-05` で作成したリポジトリ実装に、`IOrderRepository` の実装を追加する。
+  * `Order` 集約（`LineItem` を含む）を、インメモリ（辞書）で保存・取得する方法を学ぶ。
+  * 依存関係のルール（「外側」が「内側」に依存する）が守られていることを `import` 文で再確認する。
 
-このファイルは、引き続きUse Cases（ユースケース）レイヤーに属します。しかし、DDDを適用したことで、その役割は大きく変化しました。
+-----
 
-以前は、在庫チェックや合計金額の計算といったビジネスロジックを自身で実行する「働き者のマネージャー」でした。
-しかし今、そのロジックの多くは`Order`集約に移譲されました。その結果、このユースケースは、必要な集約（Aggregate）を見つけ出し、仕事（メソッド呼び出し）を依頼し、結果をリポジトリに保存するという、より上位の**「コーディネーター」または「指揮者」**のような役割に変わりました。
+## 🔌 このファイルの役割：新しい契約を実装する「アダプター」
 
-### 2. ソースコードの詳細解説
+このファイルは、引き続き `Interface Adapters` レイヤーに属します。
 
-`ProcessOrderInput` と `ProcessOrderOutput` (DTOs)
-これらは**DTO (Data Transfer Object)**と呼ばれる、単純なデータの入れ物です。ユースケースの入り口と出口のデータ形式を明確に定義することで、`dict`（辞書）よりも意図が分かりやすく、型安全なコードになります。
+`Use Cases` レイヤーが「注文（`Order` 集約）を保存するための、こういう形のポート（`IOrderRepository`）が必要です」と `DDD-04` で宣言しました。
+このレイヤーは「はい、承知いたしました。そのポートにぴったり合う、この技術（インメモリDB）を使ったアダプターです」と、具体的な実装クラスを提供します。
 
-`ProcessOrderUseCase` クラス
-- `__init__(...)`: 依存性の注入（DI）が更新されています。このユースケースは、`Product`を探すための`ProductRepository`と、`Order`を保存するための`OrderRepository`という、**2つの異なるリポジトリ（インターフェース）**に依存するようになりました。
+-----
 
-- `execute(...)`: このメソッドの処理の流れが、DDDによる役割の変化を最もよく表しています。
+## 💻 ソースコードの詳細解説
 
-  1. 準備: `ProductRepository`を使い、注文に必要な`Product`エンティティを事前にすべて取得します。これは、料理人が調理を始める前に、すべての材料を揃えるのと同じです。
+### `InMemoryProductRepository`: 商品の保管庫（変更なし）
 
-  2. 生成: `Order`集約のインスタンスを生成します。この時点では、まだ空の注文伝票です。
+このクラスの役割は `CA-05` から変わりません。`IProductRepository` という契約書を忠実に実装し、商品データをインメモリの辞書で管理します。
 
-  3. 委譲: 注文明細を追加する処理は、`order.add_line_item(...)`を呼び出すことで、`Order`集約自身に完全に委譲します。ユースケースは、`add_line_item`の内部で在庫チェックが行われていることなどを知る必要はありません。
+### `InMemoryOrderRepository(IOrderRepository)`: 注文の保管庫（重要）
 
-  4. 委譲: 注文を確定する処理も、`order.confirm()`を呼び出して`Order`集約に委譲します。
+こちらが今回の重要な追加点です。このクラスは、`IOrderRepository` という新しい契約書を履行します。
 
-  5. 永続化: 完成し、整合性が保たれた`Order`集約を、`OrderRepository`に渡して保存を依頼します。
+  * `__init__(self)`: このクラスは、`Order` 集約を保存するための、専用のインメモリデータベース（`self._orders` という辞書）を内部に保持します。`Product` のDBとは完全に分離されています。
+  * `find_by_id(...)` と `save(...)`:
+    `IOrderRepository` という契約書で約束されたメソッドを具体的に実装します。
+    `save` メソッドは、`UseCase` から渡された、ビジネスルールによって整合性が保証された `Order` 集約オブジェクトをそのまま受け取り、辞書に保存します。
 
-### 3. このレイヤーの鉄則（DDD適用後）
+-----
 
-1. 内側にのみ依存: これは変わりません。
+## 🏛️ このレイヤーの鉄則（再確認）
 
-2. 集約を調整する: ユースケースは、ビジネスルールを自分で実装するのではなく、ドメインモデル（エンティティや集約）を調整し、指揮することに専念します。
+1.  契約書を必ず履行する: `InMemoryOrderRepository` は、`IOrderRepository` インターフェースを必ず継承し、そのすべてのメソッドを実装します。
+2.  依存の矢印は必ず内側を向く: このファイルは、自分より内側の `domain` や `use_cases` に依存します。
+3.  翻訳者であれ: このシンプルな例ではオブジェクトを直接保存していますが、本来であれば、このレイヤーはドメインオブジェクト（`Order` や `LineItem`）とデータベースのテーブル形式（`orders` テーブル、`line_items` テーブル）との間でデータを相互に変換する責任を持ちます。
 
-3. トランザクションの境界: 1つのユースケースの実行は、通常、データベースにおける1つのトランザクションに対応します。executeメソッドが成功すればコミット、失敗すればロールバック、という流れを保証する責任を持ちます。
+-----
 
----
-### `use_cases/process_order.py`
+## 📄 `interface_adapters/repositories.py` の実装
 
-``` Python
+（`CA-05` のファイルに `InMemoryOrderRepository` の実装を追加・更新します）
+
+```python:interface_adapters/repositories.py
 # 依存性のルール:
-# このファイルはUse Casesレイヤーに属します。
-# 自分より内側のdomainレイヤーと、同じレイヤーのinterfacesにのみ依存します。
+# このファイルは Interface Adapters レイヤーに属します。
+# 自分より内側の domain レイヤーと use_cases レイヤーにのみ依存します。
 
-import uuid
-from dataclasses import dataclass
+from typing import List
+
+# 「内側」の domain レイヤーからエンティティと集約をインポート
 from domain.product import Product
 from domain.order import Order
-from .interfaces import ProductRepository, OrderRepository
 
-# --- DTO (Data Transfer Object) の定義 ---
-# ユースケースの入出力を明確にするためのデータ構造
+# 「内側」の use_cases レイヤーからインターフェース（契約書）をインポート
+from use_cases.interfaces import IProductRepository, IOrderRepository
 
-@dataclass
-class ProcessOrderInput:
-    """ユースケースへの入力データを格納するクラス"""
-    items: list[dict] # 例: [{"product_id": "p-001", "quantity": 2}, ...]
-
-@dataclass
-class ProcessOrderOutput:
-    """ユースケースからの出力データを格納するクラス"""
-    order_id: str
-    total_price: int
-
-class ProcessOrderUseCase:
+class InMemoryProductRepository(IProductRepository):
     """
-    【Use Casesレイヤー / Use Case】
-    「注文を処理する」というアプリケーションのユースケース。
+    【Interface Adaptersレイヤー / Adapter】
+    IProductRepositoryインターフェースの、インメモリDBによる具体的な実装。
     
-    DDDを適用したことで、このクラスの役割は大きく変化した。
-    以前は自身が持っていたビジネスロジックの多くを、Order集約に移譲し、
-    自身は集約を見つけて実行し、結果を保存するという「調整役」に専念する。
+    (このクラスの役割は、CA-05 から変更ありません)
     """
-    def __init__(self, product_repo: ProductRepository, order_repo: OrderRepository):
-        self.product_repo = product_repo
-        self.order_repo = order_repo
+    def __init__(self):
+        self._products: dict[str, Product] = {}
+        print("インメモリ商品リポジトリが初期化されました。")
 
-    def execute(self, order_input: ProcessOrderInput) -> ProcessOrderOutput:
-        # 1. 準備：注文に必要なProductエンティティをすべて取得する
-        products: dict[str, Product] = {}
-        for item in order_input.items:
-            product = self.product_repo.find_by_id(item["product_id"])
-            if not product:
-                raise ValueError(f"商品IDが見つかりません: {item['product_id']}")
-            products[item["product_id"]] = product
+    def find_by_id(self, product_id: str) -> Product | None:
+        """【実装】辞書から商品IDで検索して返す"""
+        print(f"リポジトリ: 商品ID'{product_id}'を検索します。")
+        return self._products.get(product_id)
+
+    def save(self, product: Product):
+        """【実装】辞書に商品データを保存（または更新）する"""
+        print(f"リポジトリ: {product.name} を保存します。")
+        self._products[product.product_id] = product
+
+class InMemoryOrderRepository(IOrderRepository):
+    """
+    【Interface Adaptersレイヤー / Adapter】
+    DDD-04で新しく定義された IOrderRepositoryインターフェースの、
+    インメモリDBによる具体的な実装。
+    
+    Use Caseレイヤーで定義された「契約」を、ここで具体的に履行します。
+    """
+    def __init__(self):
+        # 注文(Order)集約を保存するための、専用の辞書
+        self._orders: dict[str, Order] = {}
+        print("インメモリ注文リポジトリが初期化されました。")
+
+    def find_by_id(self, order_id: str) -> Order | None:
+        """【実装】辞書から注文IDで Order 集約を検索して返す"""
+        print(f"リポジトリ: 注文ID'{order_id}'を検索します。")
+        return self._orders.get(order_id)
+
+    def save(self, order: Order):
+        """
+        【実装】Use Caseから渡された Order 集約を、そのまま辞書に保存します。
         
-        # 2. 生成：新しいOrder集約のインスタンスを生成する
-        new_order_id = "order-" + str(uuid.uuid4())
-        order = Order(order_id=new_order_id)
-
-        # 3. 委譲：ビジネスロジックの実行をOrder集約に委譲する
-        for item in order_input.items:
-            product = products[item["product_id"]]
-            order.add_line_item(product, item["quantity"])
+        もしこれが本物のDBなら、このメソッドの中で
+        Orderオブジェクトの情報を分解し、ordersテーブルやline_itemsテーブルに
+        書き込むといった、複雑な処理（トランザクション）が行われます。
+        """
+        print(f"リポジトリ: 注文ID'{order.order_id}' を保存します。")
+        self._orders[order.order_id] = order
         
-        # 4. 委譲：注文の確定処理もOrder集約に委譲する
-        order.confirm()
-        
-        # 5. 永続化：完成したOrder集約をリポジトリに保存する
-        self.order_repo.save(order)
-
-        # 6. 結果を返す
-        return ProcessOrderOutput(
-            order_id=order.order_id,
-            total_price=order.total_price
-        )
-```
-
+    def get_all(self) -> List[Order]:
+        """【実装】保持しているすべての Order 集約をリストとして返す"""
+        print("リポジトリ: すべての注文履歴を取得します。")
+        return list(self._orders.values())
 ```

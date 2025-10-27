@@ -1,87 +1,158 @@
-# DDD-05
+# DDD-05 : 🟢 `use_cases/process_order_use_case.py` (ユースケース)
 
-```markdown
-## `use_cases/interfaces.py` (インターフェース)
+`domain` レイヤーが（`DDD-03` で）リッチになったことで、この `Use Cases` レイヤーの役割がどのように変化したかにご注目ください。
 
-ドメインモデルに新しい「宝物」（Order集約）が加わったことで、この外部世界との「契約書」も更新する必要があります。
+## 🎯 この章のゴール
 
----
+  * `UseCase` の役割が、`DDD` の適用により「ロジックの実行者」から「**調整役（コーディネーター）**」に変わることを理解する。
+  * `UseCase` が、`Domain`（集約）にビジネスロジックの実行を「**委譲**」する様子を実装する。
+  * `DTO`（Data Transfer Object）を導入し、`UseCase` の入出力を明確にする。
+  * `UseCase` が「**トランザクションの境界**」として、変更されたすべての集約（`Product` と `Order`）を保存する責任を持つことを学ぶ。
 
-### 1. このファイルの役割：更新された外部世界との「契約書」
+-----
 
-このファイルは、引き続きUse Cases（ユースケース）レイヤーに属し、内側のビジネスロジックが外部の永続化層などと結ぶ**抽象的な「契約書（インターフェース）」**を定義します。
+## 🎼 このファイルの役割：集約を指揮する「コーディネーター」
 
-前回の`domain/order.py`で、私たちは「注文」という新しい、そして非常に重要なビジネス概念（集約）を定義しました。
-したがって、ユースケースがその「注文」をデータベースなどに保存したり、後から見つけ出したりするためには、**新しい専用の出入り口（ポート）**が必要になります。
+このファイルは、引き続き `Use Cases` レイヤーに属します。しかし、`DDD` を適用したことで、その役割は大きく変化しました。
 
-このファイルでは、既存の`ProductRepository`に加えて、新しく`OrderRepository`という契約書を定義します。
+`CA` での `UseCase` は、在庫チェックや在庫削減といったビジネスロジックを**自身で実行する**「働き者のマネージャー」でした。
 
-### 2. ソースコードの詳細解説
+`DDD` では、そのロジックの多くは `Order` 集約に移譲されました。その結果、この `UseCase` は、必要なエンティティ（`Product`）を見つけ出し、`Order` 集約に仕事（メソッド呼び出し）を**依頼**し、結果（変更された `Product` と新しい `Order`）をリポジトリに保存するという、より上位の\*\*「コーディネーター」または「指揮者」\*\*のような役割に変わりました。
 
-`ProductRepository(ABC)`: 商品の保管庫（変更なし）
-このインターフェースの役割は以前と変わりません。Productエンティティを見つけたり、保存したりするための契約を定義しています。
+-----
 
-`OrderRepository(ABC)`: 注文集約の保管庫（新規追加）
-こちらが今回の重要な追加点です。この抽象基底クラスは、Order集約を永続化するオブジェクトが満たすべき契約を定義します。
+## 💻 ソースコードの詳細解説
 
-- `find_by_id(...)`: 注文IDを受け取り、Order集約全体を復元して返すことを約束します。
+### `ProcessOrderInput` と `ProcessOrderOutput` (DTOs)
 
-- `save(...)`: Order集約全体を受け取り、その状態（注文自体の情報と、それに含まれる全てのLineItem）を永続化することを約束します。
+これらは **DTO (Data Transfer Object)** と呼ばれる、単純なデータの入れ物です。`UseCase` の「入り口（Input）」と「出口（Output）」のデータ形式を `dict` ではなく `dataclass` で明確に定義することで、意図が分かりやすく、型安全なコードになります。
 
-このインターフェースのおかげで、`ProcessOrderUseCase`は、注文データが単一のテーブルに保存されているのか、複数のテーブルにまたがって保存されているのかといった、外側の世界の具体的な実装を一切気にすることなく、「注文を保存してくれ」と依頼できるのです。
+### `ProcessOrderUseCase` クラス
 
-### 3. このレイヤーの鉄則（再確認）
+  * `__init__(...)`:
+    依存性の注入（DI）が更新されています。このユースケースは、`Product` を探すための `IProductRepository` と、`Order` を保存するための `IOrderRepository` という、\*\*2つの異なるリポジトリ（インターフェース）\*\*に依存するようになりました。
+  * `execute(...)`:
+    このメソッドの処理の流れが、`DDD` による役割の変化を最もよく表しています。
 
-- 内側の要求によって定義される: `OrderRepository`は、`ProcessOrderUseCase`が「注文を保存したい」と要求したからこそ存在します。
+<!-- end list -->
 
-- 依存の矢印は内側を向く: このファイルは、自分より内側の`domain`レイヤー（`Product`, `Order`）にのみ依存します。
+1.  **準備:** `IProductRepository` を使い、注文に必要な `Product` エンティティをすべて取得します。（料理人が調理を始める前に、すべての材料を揃えるのと同じです）
+2.  **生成:** `Order` 集約のインスタンスを生成します。（この時点では、まだ空の注文伝票です）
+3.  **委譲:** 注文明細を追加する処理は、`order.add_line_item(...)` を呼び出すことで、`Order` 集約自身に完全に**委譲**します。`UseCase` は、`add_line_item` の内部で在庫チェックが行われていることを知る必要はありません。
+4.  **委譲:** 注文を確定する処理も、`order.confirm()` を呼び出して `Order` 集約に**委譲**します。（このメソッド内部で、`Product` の在庫が減らされます）
+5.  **永続化:**
+    **ここが重要です**。`UseCase` は「一つの仕事（トランザクション）」の責任者です。`order.confirm()` によって状態が変化した `Product` エンティティと、新しく生成された `Order` 集約の**両方**を、各リポジトリに渡して保存を依頼します。
 
-- ドメインオブジェクト（集約）をやり取りする: `save`メソッドが渡すのは、バラバラのデータではなく、ビジネスルールで守られた**`Order`集約そのもの**です。これにより、データの整合性が保たれます。
+-----
 
----
+## 🏛️ このレイヤーの鉄則（DDD適用後）
 
-### use_cases/interfaces.py
+1.  **内側にのみ依存:** これは変わりません。
+2.  **集約を調整する:** `UseCase` は、ビジネスルールを自分で実装するのではなく、`Domain`（エンティティや集約）を調整し、指揮することに専念します。
+3.  **トランザクションの境界:** 1つの `UseCase` の実行は、通常、データベースにおける1つの「作業単位（Unit of Work / トランザクション）」に対応します。`execute` メソッドが成功すればコミット、失敗（例外発生）すればロールバック、という流れを保証する責任を持ちます。
 
-``` Python
+-----
+
+## 📄 `use_cases/process_order_use_case.py`
+
+（`CA-04` の `ProcessOrderUseCase` をリファクタリングします）
+
+```python:use_cases/process_order_use_case.py
 # 依存性のルール:
-# このファイルはUse Casesレイヤーに属します。
-# 自分より内側のdomainレイヤーにのみ依存します。
+# このファイルは Use Cases レイヤーに属します。
+# 自分より内側の domain レイヤーと、同じレイヤーの interfaces にのみ依存します。
 
-from abc import ABC, abstractmethod
-from typing import List
+import uuid
+from dataclasses import dataclass # DTOを作るためにインポート
+
+# 「内側」の domain レイヤーからインポート
 from domain.product import Product
-from domain.order import Order # ⬅️ 新しいOrder集約をインポート
+from domain.order import Order
 
-class ProductRepository(ABC):
-    """
-    【Use Casesレイヤー / Port】
-    Productエンティティの永続化を担当するオブジェクトが満たすべき契約（インターフェース）。
-    この役割は以前のバージョンから変更ありません。
-    """
-    @abstractmethod
-    def find_by_id(self, product_id: str) -> Product | None:
-        pass
+# 「同じ」レイヤーの interfaces からインポート
+from .interfaces import IProductRepository, IOrderRepository
 
-    @abstractmethod
-    def save(self, product: Product):
-        pass
+# --- DTO (Data Transfer Object) の定義 ---
+# UseCase の入出力を明確にするためのデータ構造
 
-class OrderRepository(ABC):
+@dataclass
+class ProcessOrderItemInput:
+    """注文する商品1件分の入力データ"""
+    product_id: str
+    quantity: int
+
+@dataclass
+class ProcessOrderInput:
+    """UseCase への入力データを格納するクラス"""
+    customer_id: str
+    items: list[ProcessOrderItemInput]
+
+@dataclass
+class ProcessOrderOutput:
+    """UseCase からの出力データを格納するクラス"""
+    order_id: str
+    total_price: int
+    confirmed_at: str # 仮: 注文確定日時など
+
+class ProcessOrderUseCase:
     """
-    【Use Casesレイヤー / Port】
-    Order集約の永続化を担当するオブジェクトが満たすべき、新しい契約（インターフェース）。
+    【Use Casesレイヤー / Use Case】
+    「注文を処理する」というアプリケーションのユースケース。
     
-    これにより、Use Caseは注文データの具体的な保存方法を知ることなく、
-    「注文を保存する」というビジネス上の要求を実現できます。
+    DDDを適用したことで、このクラスの役割は大きく変化した。
+    ロジックの多くを Order 集約に移譲し、自身は「調整役」に専念する。
     """
-    @abstractmethod
-    def find_by_id(self, order_id: str) -> Order | None:
-        pass
+    def __init__(self, 
+                 product_repo: IProductRepository, 
+                 order_repo: IOrderRepository):
+        """依存性の注入 (DI): 必要なリポジトリ（抽象）をすべて受け取る"""
+        self.product_repo = product_repo
+        self.order_repo = order_repo
 
-    @abstractmethod
-    def save(self, order: Order):
-        pass
+    def execute(self, order_input: ProcessOrderInput) -> ProcessOrderOutput:
+        
+        # 1. 準備：注文に必要な Product エンティティをすべて取得する
+        # (ドメインロジックではなく、ユースケースの準備処理)
+        products: dict[str, Product] = {}
+        for item in order_input.items:
+            product = self.product_repo.find_by_id(item.product_id)
+            if not product:
+                raise ValueError(f"商品IDが見つかりません: {item.product_id}")
+            products[item.product_id] = product
+            
+        # 2. 生成：新しい Order 集約のインスタンスを生成する
+        # (Order IDの採番もユースケースの責務)
+        new_order_id = "order_" + str(uuid.uuid4())
+        order = Order(order_id=new_order_id, 
+                      customer_id=order_input.customer_id)
 
-```
+        # 3. 委譲：ビジネスロジックの実行を Order 集約に「委譲」する
+        # (ここで Order.add_line_item が product.check_stock を呼ぶ)
+        for item in order_input.items:
+            product = products[item.product_id]
+            order.add_line_item(product, item.quantity)
+        
+        # 4. 委譲：注文の確定処理も Order 集約に「委譲」する
+        # (ここで Order.confirm が product.reduce_stock を呼ぶ)
+        order.confirm()
+        
+        # 5. 永続化：トランザクション内のすべての変更を保存する
+        #    UseCase は「作業単位（Unit of Work）」の責任を持つ
+        
+        # 5a. 状態が変化した Product エンティティを保存する
+        for item in order.line_items:
+            # 在庫管理対象の商品のみ保存する
+            if item.product.is_stock_managed():
+                self.product_repo.save(item.product)
+        
+        # 5b. 新しく作成された Order 集約を保存する
+        self.order_repo.save(order)
+
+        # 6. 結果を返す (DTOを使用)
+        return ProcessOrderOutput(
+            order_id=order.order_id,
+            total_price=order.total_price,
+            confirmed_at=datetime.datetime.now().isoformat() # 仮
+        )
 
 ```

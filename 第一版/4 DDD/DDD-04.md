@@ -1,131 +1,106 @@
-# DDD-04
+# DDD-04 : 🟢 `use_cases/interfaces.py` (インターフェース)
 
-## `domain/order.py` (注文集約)
+`domain` レイヤーに新しい「宝物」（`Order` 集約）が加わったことで、この外部世界との「契約書」も更新する必要があります。
 
-DDDリファクタリングの主役である、**domain/order.py**に進みましょう。ここがクリーンアーキテクチャからDDDへと思考を深める上で、最も重要なファイルです。
+## 🎯 この章のゴール
 
----
+  * `domain` レイヤーの変更（`Order` 集約の追加）に伴い、`use_cases` のインターフェースも変更（`IOrderRepository` の追加）が必要になることを理解する。
+  * 「集約（`Order`）」を単位としてデータをやり取りする、新しいリポジトリインターフェースを定義する。
 
-### 1. このファイルの役割：ビジネスの整合性を守る「集約」
+-----
 
-この`domain/order.py`ファイルも、引き続きEntities（エンティティ）レイヤーに属します。しかし、Productが単一のビジネスオブジェクトだったのに対し、このファイルでは**複数のオブジェクトが一体となって一つのビジネス概念を形成する「集約（Aggregate）」**という、より高度なパターンを導入します。
+## 🔌 このファイルの役割：更新された外部世界との「契約書 (ポート)」
 
-### 集約（Aggregate）とは？
+このファイルは、引き続き `Use Cases` レイヤーに属し、内側のビジネスロジックが外部の永続化層（DBなど）と結ぶ\*\*抽象的な「契約書（インターフェース）」\*\*を定義します。
 
-「注文（Order）」と「注文商品明細（LineItem）」のように、常にセットで扱われ、データの整合性が保たれなければならないオブジェクトのまとまりのことです。
+`DDD-03` で、私たちは「注文」という新しい、そして非常に重要なビジネス概念（集約）を定義しました。
+したがって、`Use Cases` がその「注文」をデータベースなどに保存したり、後から見つけ出したりするためには、\*\*新しい専用の出入り口（ポート）\*\*が必要になります。
 
-- アナロジー: 紙の注文伝票
-注文伝票（`Order`）と、そこに書かれた商品リスト（`LineItem`）は一体です。商品リストの項目を一つ追加したら、必ず伝票の合計金額も更新されなければなりません。この「伝票全体として、常に正しい状態を保つ」という責任を持つのが集約です。
+このファイルでは、既存の `IProductRepository` に加えて、新しく `IOrderRepository` という契約書を定義します。
 
-この集約の中で、中心的な役割を果たし、外部との唯一の窓口となるオブジェクトを**集約ルート（Aggregate Root）**と呼びます。今回の例では`Order`クラスがその役目を担います。
+-----
 
-### 2. ソースコードの詳細解説
+## 💻 ソースコードの詳細解説
 
-`LineItem` クラス: 注文の明細（値オブジェクト）
-このクラスは、「どの商品を、何個、いくらで」という注文の明細一件を表します。
-これはDDDにおける**値オブジェクト（Value Object）**の一例です。値オブジェクトは、それ自体に独立したIDを持つのではなく、その属性（商品IDや数量）によって定義されるオブジェクトです。
+### `IProductRepository(ABC)`: 商品の保管庫（変更なし）
 
-`Order` クラス: 注文伝票（集約ルート）
-このクラスが、今回の設計の核心です。
+このインターフェースの役割は `CA` の時と変わりません。`Product` エンティティを見つけたり、保存したりするための契約を定義しています。
 
-- `__init__(...)`: `Order`は、一意の注文ID（`order_id`）を持つため、値オブジェクトではなくエンティティです。
-- `add_line_item(...)`:
-これが豊かなドメインモデルの真骨頂です。このメソッドは、単にリストに商品を追加するだけではありません。
-1. 商品の在庫を確認する（`product.check_stock`）
-2. 在庫があれば、新しい`LineItem`を生成する
-3. 合計金額を更新する
-という、一連のビジネスルールをカプセル化しています。以前はUse Caseが担っていたロジックの一部が、ドメインモデル自身に移動してきました。
-- `confirm()`:
-注文を確定するという、ビジネス上の重要なイベントを表すメソッドです。このメソッドが呼ばれると、`Order`は自分が保持している`Product`オブジェクトたちに「在庫を減らせ」と命令します。集約ルートである`Order`が、自身の整合性を保つためのすべての処理を指揮しています。
-- `total_price` プロパティ:
-合計金額は、常に内部の`_line_items`から計算されます。これにより、外部から合計金額だけを不正に書き換えられることがなく、データの整合性が常に保たれます。
+### `IOrderRepository(ABC)`: 注文集約の保管庫（重要）
 
-### 3. このレイヤーの鉄則
+こちらが今回の重要な追加点です。この抽象基底クラスは、`Order` 集約を永続化するオブジェクトが満たすべき契約を定義します。
 
-1. 豊かなドメインモデル: エンティティは、単なるデータの入れ物（貧血ドメインモデル）であってはなりません。それ自身がビジネスルールを持ち、振る舞うべきです。
-2. 整合性の境界: 集約は、その内部の状態が常にビジネスルール上、正しい状態であることを保証する責任を持ちます。
-3. 集約ルートが唯一の窓口: 集約の外部から、`LineItem`を直接操作することは許されません。集約に対するすべての操作は、必ず集約ルートである`Order`クラスを通じて行われなければなりません。
+  * `find_by_id(...)`: 注文IDを受け取り、`Order` 集約全体（`LineItem` なども含む）を復元して返すことを約束します。
+  * `save(...)`: `Order` 集約全体を受け取り、その状態（注文自体の情報と、それに含まれる全ての `LineItem`）を永続化することを約束します。
 
----
+このインターフェースのおかげで、`Use Cases` は、注文データが単一のテーブルに保存されているのか、複数のテーブル（`Orders` と `LineItems`）にまたがって保存されているのかといった、外側の世界の具体的な実装を一切気にすることなく、「注文を保存してくれ」と依頼できるのです。
 
-```
+-----
+
+## 🏛️ このレイヤーの鉄則（再確認）
+
+  * **内側の要求によって定義される:**
+    `IOrderRepository` は、`Use Cases` が「`Order` を保存したい」と要求したからこそ存在します。
+  * **依存の矢印は内側を向く:**
+    このファイルは、自分より内側の `domain` レイヤー（`Product`, `Order`）にのみ依存します。
+  * **ドメインオブジェクト（集約）をやり取りする:**
+    `save` メソッドが渡すのは、バラバラのデータではなく、ビジネスルールで守られた\*\*`Order` 集約そのもの\*\*です。これにより、データの整合性が保たれます。
+
+-----
+
+## 📄 `use_cases/interfaces.py`
+
+（`CA-03` のファイルに `IOrderRepository` を追加・整備します）
+
+```python:use_cases/interfaces.py
 # 依存性のルール:
-# このファイルはEntitiesレイヤーに属します。
-# 同じレイヤーの Product エンティティに依存しますが、
-# 他のどのレイヤーにも依存しません。
+# このファイルは Use Cases レイヤーに属します。
+# 自分より内側の domain レイヤーにのみ依存します。
 
-import datetime
-from .product import Product
+from abc import ABC, abstractmethod
+from typing import List
 
-class LineItem:
+# 「内側」の domain レイヤーからエンティティと集約をインポート
+from domain.product import Product
+from domain.order import Order # ⬅️ DDD-03 で作成した Order 集約をインポート
+
+class IProductRepository(ABC):
     """
-    【Entitiesレイヤー / Value Object】
-    注文の明細一件を表す「値オブジェクト」。
-
-    それ自体に独立したIDを持つのではなく、その属性によって定義される。
-    「どの商品を、何個、いくらで」という情報を持つ。
+    【Use Casesレイヤー / Port】
+    Productエンティティの永続化を担当するオブジェクトが満たすべき契約。
+    (このインターフェースは CA-03 から変更なし)
     """
-    def __init__(self, product: Product, quantity: int):
-        if quantity <= 0:
-            raise ValueError("数量は1以上でなければなりません。")
-        self.product = product
-        self.quantity = quantity
+    @abstractmethod
+    def find_by_id(self, product_id: str) -> Product | None:
+        """【契約】商品IDを元に、単一の商品エンティティを検索する"""
+        pass
+    
+    @abstractmethod
+    def save(self, product: Product):
+        """【契約】商品エンティティの状態を永続化（保存・更新）する"""
+        pass
 
-    @property
-    def total_price(self) -> int:
-        """この明細の合計金額を計算するビジネスルール。"""
-        return self.product.price * self.quantity
-
-class Order:
+class IOrderRepository(ABC):
     """
-    【Entitiesレイヤー / Aggregate Root & Entity】
-    「注文」というビジネス概念を表す「集約ルート」。
-
-    LineItemを内部に持ち、注文全体としての一貫性を保つ責任を持つ。
-    注文IDを持つため、それ自体もエンティティである。
+    【Use Casesレイヤー / Port】
+    Order集約の永続化を担当するオブジェクトが満たすべき、新しい契約。
+    
+    これにより、Use Caseは注文データの具体的な保存方法（RDB, NoSQL, etc.）
+    を知ることなく、「注文を保存する」という要求を実現できます。
     """
-    def __init__(self, order_id: str):
-        self.order_id = order_id
-        self._line_items: list[LineItem] = []
-        self._total_price: int = 0
-        self.confirmed: bool = False
+    @abstractmethod
+    def find_by_id(self, order_id: str) -> Order | None:
+        """【契約】注文IDを元に、Order集約全体を復元して返す"""
+        pass
 
-    @property
-    def total_price(self) -> int:
-        """合計金額は、常に内部の明細から計算されることを保証する。"""
-        return sum(item.total_price for item in self._line_items)
-
-    @property
-    def line_items(self) -> list[LineItem]:
-        return self._line_items
-
-    def add_line_item(self, product: Product, quantity: int):
-        """
-        注文に商品を追加するビジネスルール。
-        このメソッドは、単にリストに値を追加するだけでなく、
-        在庫チェックという重要なビジネスルールをカプセル化している。
-        """
-        if self.confirmed:
-            raise ValueError("確定済みの注文は変更できません。")
-        if not product.check_stock(quantity):
-            raise ValueError(f"{product.name}の在庫が不足しています。")
-
-        self._line_items.append(LineItem(product, quantity))
-        print(f"注文明細追加: {product.name} x {quantity}")
-
-    def confirm(self):
-        """
-        注文を確定するビジネスルール。
-        このメソッドが呼ばれると、注文は変更不可になり、
-        関連する商品の在庫が実際に減らされる。
-        """
-        if not self._line_items:
-            raise ValueError("注文明細が空です。")
-
-        for item in self._line_items:
-            item.product.reduce_stock(item.quantity)
-
-        self.confirmed = True
-        print(f"注文確定: {self.order_id}")
+    @abstractmethod
+    def save(self, order: Order):
+        """【契約】Order集約全体（LineItemも含む）の状態を永続化する"""
+        pass
+    
+    @abstractmethod
+    def get_all(self) -> List[Order]:
+        """【契約】（補足）すべての注文履歴（Order集約のリスト）を取得する"""
+        pass
 
 ```
