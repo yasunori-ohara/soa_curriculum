@@ -1,50 +1,256 @@
-# OOP-06
+# OOP-06 : 単一責任の原則(SRP)とリポジトリパターン
 
-## SOLID原則の解決
+`OOP-04` でOCP（オープン・クローズドの原則）の問題は解決しましたが、`OOP-02` で指摘したもう一つの課題、**S（単一責任の原則）違反**が残っています。
 
-この「ダウンロード商品への対応」を行ったことで、このプログラムは**SOLID原則の5つすべてを高いレベルで満たす、非常に優れたオブジェクト指向設計**になりました。
+現在の `Store` クラスは、「注文のビジネスロジックを処理する」責任と、「注文記録を作成し、リスト（`_orders`）に**保存する**」という、データ永続化（保存）の責任まで持ってしまっています。
 
-以前の評価で「半分だけ適用」や「まだ問われていない」とされた部分が、今回の変更によって完全に解決されています。
+この章では、この2つの責任を分離するため、**リポジトリパターン**という設計パターンを導入します。
 
----
+## 🎯 この章のゴール
 
-### S: 単一責任の原則 (Single Responsibility Principle)
+  * `Store` クラスのSRP（単一責任の原則）違反を解消する。
+  * 「注文 (`Order`)」という概念を、辞書（`dict`）から `Order` クラス（エンティティ）に昇格させる。
+  * **リポジトリパターン**を導入し、「ビジネスロジック」と「データ保存ロジック」を分離する。
+  * 依存性の注入（DI）を使い、`Store` が「抽象的なリポジトリ」に依存するように変更する（DIPの徹底）。
 
-- **評価: 適用済み**
-- **理由**: 変更ありません。`Store`は店舗のフロー、`PhysicalProduct`は物理商品のルール、そして新しく追加された`DigitalProduct`はダウンロード商品のルール、とそれぞれが単一の責任を担っています。
+-----
 
----
+## 🔗 変更の概要
 
-### O: オープン・クローズドの原則 (Open/Closed Principle)
+1.  **`Order` クラスの新設:**
+    注文記録（`dict`）を、`Order` クラスという明確な「概念」にします。
+2.  **`IOrderRepository` (インターフェース) の新設:**
+    「`Order` を保存する」という「契約（`save` メソッド）」を定義します。
+3.  **`InMemoryOrderRepository` (具象) の新設:**
+    `IOrderRepository` を実装し、`Store` が今まで `_orders` リストに保存していた処理を、このクラスが引き継ぎます。
+4.  **`Store` クラスのリファクタリング:**
+      * `__init__` で `IOrderRepository` を受け取るようにします（依存性の注入）。
+      * `process_order` から、注文記録の作成と保存ロジックを削除し、`self._repository.save(...)` を呼び出すだけにします。
 
-- **評価: 完全に適用済み（今回の変更の最大の成果）**
-- **理由**: 以前は「新しい**種類**の商品を追加する際に`Product`クラスの修正が必要」という問題がありましたが、完全に解決されました。`DigitalProduct`という新しいビジネス要件（拡張）に対して、既存の`Store`クラスのコードは**一切修正されていません**。まさに「拡張に対して開き、修正に対して閉じて」います。
+-----
 
----
+## 💻 `logic.py` : リポジトリの導入と `Store` のスリム化
 
-### L: リスコフの置換原則 (Liskov Substitution Principle)
+`logic.py` が、ビジネスの「概念（エンティティ）」と「ロジック（`Store`）」、そして「保存（リポジトリ）」の定義場所となります。
 
-- **評価: 完全に適用済み**
-- **理由**: 以前は継承がなかったため問われていませんでしたが、今回その重要性が明確になりました。`Store`クラスは`Product`型のオブジェクトを期待していますが、そこに子クラスである`PhysicalProduct`や`DigitalProduct`を渡しても、プログラムは全く問題なく動作します。これは、両方の子クラスが親クラス（`Product` ABC）の「契約」をきちんと守って実装されているためです。
+```python
+import datetime
+from abc import ABC, abstractmethod
 
----
+# --- OOP-04までの Product 関連 (変更なし) ---
+class Product(ABC):
+    # (OOP-04 と同じコードのため省略)
+    def __init__(self, product_id: str, name: str, price: int): ...
+    @abstractmethod
+    def check_stock(self, quantity: int) -> bool: ...
+    @abstractmethod
+    def reduce_stock(self, quantity: int): ...
+    @abstractmethod
+    def get_stock(self) -> int | str: ...
 
-### I: インターフェース分離の原則 (Interface Segregation Principle)
+class PhysicalProduct(Product):
+    # (OOP-04 と同じコードのため省略)
+    def __init__(self, product_id: str, name: str, price: int, stock: int): ...
+    def check_stock(self, quantity: int) -> bool: ...
+    def reduce_stock(self, quantity: int): ...
+    def get_stock(self) -> int: ...
 
-- **評価: 適用済み**
-- **理由**: `Product`というインターフェースは、「商品」として必要な責務に特化しており、`Store`クラスはそれを余すことなく利用しています。不要なメソッドを強制するような「太ったインターフェース」にはなっていません。
+class DigitalProduct(Product):
+    # (OOP-04 と同じコードのため省略)
+    def __init__(self, product_id: str, name: str, price: int): ...
+    def check_stock(self, quantity: int) -> bool: ...
+    def reduce_stock(self, quantity: int): ...
+    def get_stock(self) -> str: ...
 
----
+# --- ここからが「追加・変更」したコード ---
 
-### D: 依存性逆転の原則 (Dependency Inversion Principle)
+class Order:
+    """
+    【新設】「注文」という概念を表すクラス（エンティティ）。
+    今までの「辞書(dict)」から昇格させた。
+    """
+    def __init__(self, product_name: str, quantity: int, total_price: int):
+        self.product_name = product_name
+        self.quantity = quantity
+        self.total_price = total_price
+        self.order_date = datetime.datetime.now().isoformat()
+        
+    def __repr__(self):
+        # print() で表示したときに見やすくするためのメソッド
+        return f"<Order: {self.product_name}, Qty: {self.quantity}, Price: {self.total_price}>"
 
-- **評価: 完全に適用済み**
-- **理由**: 前回の地盤固めがここで活きています。上位モジュールである`Store`クラスは、`PhysicalProduct`や`DigitalProduct`といった具体的な下位モジュールに依存していません。両者とも、`Product`という**抽象**に依存しています。これにより、`Store`クラスを変更することなく、新しい種類の商品を安全に追加することができました。
+class IOrderRepository(ABC):
+    """
+    【新設】注文を保存するための「抽象的」なインターフェース。
+    Storeクラスは、このインターフェースに依存する。
+    """
+    @abstractmethod
+    def save(self, order: Order):
+        """【契約】注文(Order)を保存する"""
+        pass
+    
+    @abstractmethod
+    def get_all(self) -> list[Order]:
+        """【契約】すべての注文履歴を取得する"""
+        pass
 
----
+class InMemoryOrderRepository(IOrderRepository):
+    """
+    【新設】注文を「メモリ上のリスト」に保存する「具体的」な実装クラス。
+    Storeが持っていた _orders リストは、ここが管理する。
+    """
+    def __init__(self):
+        self._orders: list[Order] = [] # 注文を保存するリスト
 
-### 結論
+    def save(self, order: Order):
+        """【実装】リストに Order オブジェクトを追加する"""
+        self._orders.append(order)
+        print(f"注文記録保存: {order.product_name} をリストに保存しました。")
 
-この一連のリファクタリング（抽象の導入→継承とポリモーフィズムの活用）によって、私たちのプログラムは単に動くだけでなく、**将来のビジネス要件の変更に対して、非常に柔軟かつ堅牢な構造**を手に入れました。
+    def get_all(self) -> list[Order]:
+        """【実装】保持しているリストを返す"""
+        return self._orders
 
-これこそが、SOLID原則に即したオブジェクト指向設計がもたらす、最大の価値なのです。
+class Store:
+    """
+    【変更】店舗を表すクラス。
+    注文の「保存」ロジックが分離され、本来の「ビジネスロジック」に集中する。
+    """
+    def __init__(self, name: str, order_repository: IOrderRepository):
+        self.name = name
+        self._products: dict[str, Product] = {}
+        
+        # 変更点1: 自分で _orders リストを持つ代わりに、
+        # 外部から「リポジトリ(保存担当)」を受け取る（依存性の注入）
+        self._order_repository = order_repository
+        
+        # `self._orders = []` は削除された
+
+    def add_product(self, product: Product):
+        self._products[product.product_id] = product
+
+    def _find_product(self, product_id: str) -> Product | None:
+        return self._products.get(product_id)
+
+    def process_order(self, product_id: str, quantity: int):
+        """
+        【変更】このメソッドは「注文のフロー管理」という単一責任になった。
+        """
+        print(f"\n--- [{self.name}] 注文処理開始: 商品ID={product_id}, 数量={quantity} ---")
+
+        product = self._find_product(product_id)
+        if not product:
+            print(f"エラー: [{self.name}] 指定された商品が見つかりません。")
+            return
+
+        if not product.check_stock(quantity):
+            print(f"エラー: [{self.name}] {product.name}の在庫が不足しています。")
+            return
+
+        product.reduce_stock(quantity)
+
+        # 変更点2: 注文記録(dict)の「作成」ロジックを削除
+        # 代わりに「Orderオブジェクト」を作成する
+        order = Order(
+            product_name=product.name,
+            quantity=quantity,
+            total_price=product.price * quantity
+        )
+
+        # 変更点3: 自分でリストに append する代わりに、
+        # 保存担当（リポジトリ）に「保存を依頼」する（DIP）
+        self._order_repository.save(order)
+        
+        # `self._orders.append(order_record)` は削除された
+
+        print(f"注文成功: [{self.name}] {product.name}を{quantity}個受け付けました。")
+
+    def get_current_stock_info(self) -> dict:
+        # (このメソッドは変更なし)
+        stock_info = {}
+        for p_id, p in self._products.items():
+            stock_info[p.name] = p.get_stock()
+        return stock_info
+    
+    def get_order_history(self) -> list[Order]:
+        """【新設】注文履歴の取得も、リポジトリに依頼する"""
+        return self._order_repository.get_all()
+```
+
+-----
+
+## 🏛️ `main.py` : 依存性の注入（DI）
+
+`main.py` の役割は、「部品（リポジトリ、`Store`）」を組み立てて（**依存性の注入**）、アプリケーションを実行することです。
+
+```python
+# Order, IOrderRepository, InMemoryOrderRepository をインポート
+from logic import (
+    PhysicalProduct, DigitalProduct, Store, 
+    IOrderRepository, InMemoryOrderRepository, Order
+)
+
+if __name__ == "__main__":
+    
+    # --- 1. 依存関係の構築 (DI) ---
+    
+    # 東京店用の「保存担当（リポジトリ）」インスタンスを作成
+    tokyo_repo: IOrderRepository = InMemoryOrderRepository()
+    
+    # Store を作成する際、保存担当（リポジトリ）を「注入」する
+    tokyo_store = Store("東京店", order_repository=tokyo_repo)
+    
+    # 大阪店用の「保存担当（リポジトリ）」インスタンスも作成
+    osaka_repo: IOrderRepository = InMemoryOrderRepository()
+    osaka_store = Store("大阪店", order_repository=osaka_repo)
+
+    # --- 2. 商品のセットアップ (変更なし) ---
+    tokyo_store.add_product(PhysicalProduct("p-001", "高機能マウス", 4000, 10))
+    tokyo_store.add_product(PhysicalProduct("p-002", "静音キーボード", 6000, 5))
+    tokyo_store.add_product(DigitalProduct("d-001", "デザインソフト eBook", 8000))
+    
+    osaka_store.add_product(PhysicalProduct("p-001", "高機能マウス", 4100, 8))
+    osaka_store.add_product(DigitalProduct("d-002", "プログラミング講座 動画", 12000))
+
+    # --- 3. 在庫表示と注文処理 (変更なし) ---
+    # Store を「使う側」のコードは一切変更する必要がない
+    
+    print("--- 初期在庫 ---")
+    print(f"{tokyo_store.name}:", tokyo_store.get_current_stock_info())
+    print(f"{osaka_store.name}:", osaka_store.get_current_stock_info())
+
+    tokyo_store.process_order("p-001", 3)
+    tokyo_store.process_order("p-002", 10) # 在庫不足
+    tokyo_store.process_order("d-001", 50) # ダウンロード
+    osaka_store.process_order("d-002", 100) # 大阪ダウンロード
+
+    print("\n--- 最終在庫 ---")
+    print(f"{tokyo_store.name}:", tokyo_store.get_current_stock_info())
+    print(f"{osaka_store.name}:", osaka_store.get_current_stock_info())
+
+    # --- 4. 注文履歴の表示 ---
+    # Store経由で、リポジトリから履歴を取得する
+    print(f"\n--- {tokyo_store.name} 注文履歴 ---")
+    for order in tokyo_store.get_order_history():
+        print(order)
+        
+    print(f"\n--- {osaka_store.name} 注文履歴 ---")
+    for order in osaka_store.get_order_history():
+        print(order)
+```
+
+-----
+
+## ✨ この変更の効果
+
+このリファクタリングにより、SOLID原則がさらに高いレベルで満たされました。
+
+1.  **S (単一責任) の達成:**
+    `Store` クラスは「注文フローの実行」というビジネスロジックに集中できました。「注文をどう保存するか（リストか？DBか？）」という責任は、`InMemoryOrderRepository` が担当します。
+2.  **O (オープン・クローズド) の達成:**
+    もし将来、「注文をリストではなく、**データベースに保存**したい」という要求が来ても、`Store` クラスを**一切修正する必要はありません**。
+    `DatabaseOrderRepository` という新しいクラスを作り `IOrderRepository` を実装し、`main.py` で `Store` に注入するクラスを差し替えるだけです。
+3.  **D (依存性逆転) の徹底:**
+    `Store`（上位モジュール）は、`InMemoryOrderRepository`（具象）を知りません。`IOrderRepository`（抽象）にのみ依存しています。
+
+この「**ビジネスロジック**」と「**データ永続化（インフラストラクチャ）**」の分離こそが、次のステップである**クリーンアーキテクチャ**や**ドメイン駆動設計 (DDD)** の最も核心的なプラクティスです。
