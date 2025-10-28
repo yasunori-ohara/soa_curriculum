@@ -231,7 +231,8 @@ class Store:
 
 `main.py`の役割は、「**具体的なモノ（具象クラス）**」をインスタンス化し、それを`Store`（抽象に依存するクラス）に**注入 (Inject)** することです。
 
-```python:main.py (変更)
+### main.py (変更)
+```python
 # インポートするのが Product(抽象) ではなく、
 # 「具体的な実装」である PhysicalProduct に変わる
 from logic import PhysicalProduct, Store 
