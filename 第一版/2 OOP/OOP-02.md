@@ -22,7 +22,8 @@
 
 しかし、`Store` クラスの `process_order` メソッドを見てみましょう。
 
-```python:logic.py (Storeクラス抜粋)
+### logic.py (Storeクラス抜粋)
+```python
     def process_order(self, product_id: str, quantity: int):
         # ... (中略) ...
 
@@ -66,7 +67,8 @@
 しかし、`Product` クラスはどうでしょうか。
 もし「**ダウンロード商品**」（在庫の概念がない）のような、新しい**商品の種類**を追加したい場合、`Product` クラスの `check_stock` や `reduce_stock` メソッドを以下のように修正する必要があります。
 
-```python:logic.py (Productクラスの修正イメージ)
+#### logic.py (Productクラスの修正イメージ)
+```python
     # 「もしダウンロード商品なら...」というif文が必要になってしまう
     def check_stock(self, quantity: int) -> bool:
         if self.product_type == "download": # 既存コードの修正
@@ -126,7 +128,8 @@
 
 しかし、`Store` クラスは `Product` という**具体的なクラス**に依存しています。
 
-```python:logic.py (Storeクラス抜粋)
+#### logic.py (Storeクラス抜粋)
+```python
     # 型ヒントが具象クラス「Product」になっている
     def add_product(self, product: Product):
         self._products[product.product_id] = product

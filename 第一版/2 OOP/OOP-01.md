@@ -17,7 +17,7 @@
 
 `logic.py` の役割が変わります。手続き型では「関数（ロジック）置き場」でしたが、OOPでは「**ビジネスの概念（クラス）**」を定義する場所となります。
 
-```python:logic.py
+```python
 import datetime
 
 class Product:
@@ -134,7 +134,7 @@ class Store:
 
 `main.py` は、`logic.py` で定義された「設計図（クラス）」を使って、具体的な「実体（インスタンス）」を作成し、それらを操作します。
 
-```python:main.py
+```python
 # logic.py から「設計図」である Product クラスと Store クラスをインポート
 from logic import Product, Store
 
