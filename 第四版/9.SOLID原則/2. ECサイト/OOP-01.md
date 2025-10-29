@@ -1,113 +1,151 @@
-# OOP-01 : オブジェクト指向による再設計
+# OOP-01 : リファクタリングの題材「ECサイト注文処理」
 
-手続き型プログラミング（PP章）では、「データ」と「ロジック（手続き）」が分離していることにより、複数店舗への拡張（`PP-03`）でコードが複雑化し、破綻していく様子を見ました。
+この章では、「オブジェクト指向で書かれたプログラムを、クリーンアーキテクチャの型にはめてリファクタリングしたら、結果、SOLID原則も適用できていた。」という例を、「ECサイトの注文処理」プログラムを例題として実践していきます。
 
-この章では、その問題を根本から解決するために、**オブジェクト指向プログラミング (OOP)** を用いてシステムを全面的に再設計します。「店舗」や「商品」といったビジネス上の\*\*「概念」**を、データとロジックが一体化した**「クラス」\*\*として定義します。
+まず、リファクタリングの対象となる初期コードを示します。
+このコードは、異なる種類の商品（物理商品、ダウンロード商品）に対応するため、オブジェクト指向の\*\*ポリモーフィズム（多態性）\*\*を活用しています。しかし、アーキテクチャ全体としては多くの課題を抱えています。
+
+プログラムは、「商品」のクラス（「設計図」）を定義する`logic.py`と、システムを起動する`main.py`の2つのファイルで構成されています。
 
 ## 🎯 この章のゴール
 
-  * 手続き型の限界（データとロジックの分離、複数インスタンスの困難さ）をOOPで解決する。
-  * 「クラス（設計図）」と「インスタンス（実体）」の概念をコードで理解する。
-  * **カプセル化**がデータの安全性と保守性をいかに高めるかを学ぶ。
-  * `tokyo_store.process_order()` のような直感的なコードの利点を体感する。
+  * リファクタリング対象のコード（ECサイト注文処理）の仕様と構成を理解する。
+  * クラスの「**継承**」と「**ポリモーフィズム（多態性）**」が、異なる種類の商品（物理、デジタル）に対応するためにどのように使われているかを確認する。
+  * `Store`クラスに多くの機能が集中していることを把握する。
 
 -----
 
-## 💻 `logic.py` : 「概念」をクラスとして定義する
+## 🛠️ 1\. `logic.py` : 商品クラスとシステムロジック
 
-`logic.py` の役割が変わります。手続き型では「関数（ロジック）置き場」でしたが、OOPでは「**ビジネスの概念（クラス）**」を定義する場所となります。
+このファイルは、「商品」という概念をクラスとして定義し、さらに注文処理システムの中核ロジックも実装しています。
 
+### 商品クラス定義（ポリモーフィズム適用済み）
+
+まず、`IProduct`という**インターフェース（抽象クラス）を定義し、「商品であれば必ず満たすべき契約（属性や`check_stock`メソッドなど）」を定めています。
+次に、具体的な商品である`PhysicalProduct`（物理商品）と`DigitalProduct`（ダウンロード商品）が、その`IProduct`インターフェースを継承**し、契約されたメソッドをそれぞれ独自の方法で**実装**しています。
+
+### Storeクラス（システムロジック）
+
+`Store`クラスは、注文処理のメインフロー（`process_order`）や、商品データの管理（`_products`）、注文記録の保存（`_orders`）といった機能を提供します。`process_order`メソッド内では、ポリモーフィズムを活用し、商品の種類（物理かデジタルか）を意識せずに処理を行っています。
+
+#### logic.py
 ```python
 import datetime
+from abc import ABC, abstractmethod
 
-class Product:
+# --- 商品インターフェースと具象クラス ---
+
+class IProduct(ABC):
     """
-    一つの「商品」という概念を表現するクラス（設計図）。
-    商品に関するデータ（属性）とロジック（メソッド）を一つにまとめる。
+    【抽象】商品のインターフェース（契約）。
+    Storeクラスは、このインターフェースに依存する。
     """
-    def __init__(self, product_id: str, name: str, price: int, stock: int):
-        # --- データ（属性） ---
-        self.product_id = product_id # 商品ID
-        self.name = name           # 商品名
-        self.price = price         # 価格
+    def __init__(self, product_id: str, name: str, price: int):
+        self._product_id = product_id
+        self._name = name
+        self._price = price
         
-        # 在庫データは外部から直接変更されたくない「重要なデータ」。
-        # アンダースコア(_)を付け、内部でのみ触るべきことを示す（カプセル化）。
-        self._stock = stock
+    @property
+    def product_id(self) -> str: return self._product_id
+    @property
+    def name(self) -> str: return self._name
+    @property
+    def price(self) -> int: return self._price
 
-    # --- ロジック（メソッド） ---
-    
+    @abstractmethod
     def check_stock(self, quantity: int) -> bool:
-        """
-        在庫が十分かを確認するロジック。
-        このメソッドは自分自身（self）の _stock を参照する。
-        """
+        """【契約】指定された数量の在庫があるか"""
+        pass
+
+    @abstractmethod
+    def reduce_stock(self, quantity: int):
+        """【契約】指定された数量の在庫を減らす"""
+        pass
+
+class PhysicalProduct(IProduct):
+    """【具象】物理商品。在庫を持つ。"""
+    def __init__(self, product_id: str, name: str, price: int, stock: int):
+        super().__init__(product_id, name, price)
+        self._stock = stock # 物理在庫
+
+    @property
+    def stock(self) -> int: return self._stock
+
+    def check_stock(self, quantity: int) -> bool:
+        """【実装】物理在庫が十分か確認する"""
         return self._stock >= quantity
 
     def reduce_stock(self, quantity: int):
-        """
-        在庫を減らすロジック。
-        必ず check_stock を通してから、自分自身（self）の _stock を変更する。
-        """
-        if self.check_stock(quantity):
-            self._stock -= quantity
-            print(f"在庫更新: {self.name}の在庫が{self._stock}になりました。")
-            return True
-        return False
+        """【実装】物理在庫を減らす"""
+        if not self.check_stock(quantity):
+            # (簡易化のため例外ではなくFalseを返す or 何もしない)
+            print(f"エラー(内部): {self.name}の在庫({self._stock})が不足しています({quantity}要求)。")
+            return False # 本来は例外を投げるべき
+        
+        self._stock -= quantity
+        print(f"在庫更新: {self.name}の在庫が{self._stock}になりました。")
+        return True
 
-    def get_stock(self) -> int:
-        """外部が安全に在庫数を「参照」するためだけの公開メソッド。"""
-        return self._stock
+class DigitalProduct(IProduct):
+    """【具象】ダウンロード商品。在庫の概念がない。"""
+    def __init__(self, product_id: str, name: str, price: int):
+        super().__init__(product_id, name, price)
+        # 在庫(stock)属性は持たない
+
+    def check_stock(self, quantity: int) -> bool:
+        """【実装】常に在庫あり(True)"""
+        return True
+
+    def reduce_stock(self, quantity: int):
+        """【実装】在庫は減らない（何もしない）"""
+        print(f"在庫更新: {self.name} はダウンロード商品のため在庫変動なし。")
+        pass # Trueを返す (PhysicalProductと合わせる)
+
+# --- システムロジッククラス ---
 
 class Store:
     """
-    一つの「店舗」という概念を表現するクラス（設計図）。
-    店舗が持つべきデータ（商品リスト、注文履歴）と
-    店舗が行うべき振る舞い（注文処理）を一つにまとめる。
+    店舗での注文処理に関するすべての機能を提供するクラス。
     """
     def __init__(self, name: str):
-        # --- データ（属性） ---
-        self.name = name # 店舗名
-        
-        # この店舗が扱う「商品インスタンス」を格納する辞書（カプセル化）
-        self._products = {} 
-        # この店舗の「注文記録」を格納するリスト（カプセル化）
-        self._orders = []   
+        self.name = name
+        # 責任A: 商品データの「保存場所」（メモリ上の辞書）
+        self._products: dict[str, IProduct] = {} 
+        # 責任B: 注文記録の「保存場所」（メモリ上のリスト）
+        self._orders: list[dict] = [] 
 
-    # --- ロジック（メソッド） ---
-
-    def add_product(self, product: Product):
-        """この店舗に商品（Productインスタンス）を追加する。"""
+    def add_product(self, product: IProduct):
+        """責任A: 商品をインメモリDBに追加する"""
+        print(f"[{self.name}] 商品追加: {product.name}")
         self._products[product.product_id] = product
 
-    def _find_product(self, product_id: str) -> Product | None:
-        """（内部用）この店舗から特定の商品インスタンスを探す。"""
+    def _find_product(self, product_id: str) -> IProduct | None:
+        """責任A: インメモリDBから商品を探す"""
         return self._products.get(product_id)
 
     def process_order(self, product_id: str, quantity: int):
-        """
-        注文処理のメインフロー。
-        手続き型と違い、引数に store_id は不要。
-        このメソッドは、必ず「自分自身（self）の店舗」のデータを操作する。
-        """
+        """責任C: 注文処理のメインフローを実行する"""
         print(f"\n--- [{self.name}] 注文処理開始: 商品ID={product_id}, 数量={quantity} ---")
 
-        # 1. 自分（self）の店舗から商品を探す
+        # 1. 商品を探す (責任Aの一部)
         product = self._find_product(product_id)
         if not product:
             print(f"エラー: [{self.name}] 指定された商品が見つかりません。")
             return
 
-        # 2. Productオブジェクトに在庫の確認を「依頼」する（カプセル化）
-        #    Storeクラスは、Productが「どうやって」在庫を確認するか知る必要はない。
+        # ▼▼▼ ポリモーフィズム活用 ▼▼▼
+        # productがPhysicalかDigitalかをStoreは知らない。
+        # IProductの契約通り check_stock を呼ぶだけ。
         if not product.check_stock(quantity):
             print(f"エラー: [{self.name}] {product.name}の在庫が不足しています。")
             return
 
-        # 3. Productオブジェクトに在庫の削減を「依頼」する（カプセル化）
+        # ▼▼▼ ポリモーフィズム活用 ▼▼▼
+        # reduce_stockも同様。実装は相手に任せる。
         product.reduce_stock(quantity)
+        # ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 
-        # 4. 自分（self）の店舗の注文記録を作成し、追加する
+        # 4. 注文記録を作成し、追加する (責任Bの一部)
         order_record = {
             "product_name": product.name,
             "quantity": quantity,
@@ -115,103 +153,71 @@ class Store:
             "order_date": datetime.datetime.now().isoformat()
         }
         self._orders.append(order_record)
+        print(f"注文記録保存: {product.name} をリストに保存しました。")
 
         print(f"注文成功: [{self.name}] {product.name}を{quantity}個受け付けました。")
 
-    def get_current_stock_info(self) -> dict:
-        """この店舗の現在の在庫情報を取得する（公開メソッド）。"""
-        
-        # 各Productインスタンスに `get_stock()` で在庫数を問い合わせる
-        return {
-            p.name: p.get_stock()
-            for p_id, p in self._products.items()
-        }
+    def get_order_history(self) -> list[dict]:
+        """責任B: 保存されている注文記録を取得する"""
+        return self._orders
+
+    # (在庫表示メソッドは省略)
 ```
 
 -----
 
-## 🏛️ `main.py` : 「実体（インスタンス）」の生成と実行
+## 🛠️ 2\. `main.py` : システムの実行
 
-`main.py` は、`logic.py` で定義された「設計図（クラス）」を使って、具体的な「実体（インスタンス）」を作成し、それらを操作します。
+このファイルは、`Store`クラスをインスタンス化（実体化）し、実際にシステムを動かす役割を持ちます。`PhysicalProduct`と`DigitalProduct`の両方を`Store`に追加して利用します。
 
+#### main.py
 ```python
-# logic.py から「設計図」である Product クラスと Store クラスをインポート
-from logic import Product, Store
+# logic.py から「具体的な」商品クラスと「ロジック」クラスをインポート
+from logic import PhysicalProduct, DigitalProduct, Store
 
 if __name__ == "__main__":
-    # --- 1. 「設計図」であるクラスから、「実体」であるインスタンスを生成 ---
-    
-    # Storeクラスから「東京店」インスタンスを作成
+    # 1. システム（ロジック）のインスタンスを作成
     tokyo_store = Store("東京店")
     
-    # Productクラスから「商品」インスタンスを作成し、東京店インスタンスに追加
-    tokyo_store.add_product(Product("p-001", "高機能マウス", 4000, 10))
-    tokyo_store.add_product(Product("p-002", "静音キーボード", 6000, 5))
-    tokyo_store.add_product(Product("p-003", "24インチモニター", 25000, 3))
+    # 2. 商品（データ）のインスタンスを作成し、システムに追加
+    tokyo_store.add_product(
+        PhysicalProduct("p-001", "高機能マウス", 4000, 10)
+    )
+    tokyo_store.add_product(
+        PhysicalProduct("p-002", "静音キーボード", 6000, 5)
+    )
+    tokyo_store.add_product(
+        DigitalProduct("d-001", "デザインソフト eBook", 8000) # デジタル商品
+    )
 
-    # Storeクラスから「大阪店」インスタンスを作成
-    # tokyo_store と osaka_store は、データが完全に独立した「別の実体」
-    osaka_store = Store("大阪店")
+    # (大阪店のインスタンス作成と商品追加は省略)
+
+    # --- 3. システムのメインロジック（注文処理）を実行 ---
     
-    # 大阪店インスタンスに、別の商品インスタンスを追加
-    osaka_store.add_product(Product("p-001", "高機能マウス", 4100, 8))
-    osaka_store.add_product(Product("p-002", "静音キーボード", 6000, 12))
-    osaka_store.add_product(Product("p-003", "24インチモニター", 25500, 5))
-
-    # --- 2. 各店舗のインスタンスに対して、独立して処理を実行 ---
-    print("--- 初期在庫 ---")
-    # 東京店インスタンスに「在庫情報を教えて」と依頼
-    print(f"{tokyo_store.name}:", tokyo_store.get_current_stock_info())
-    # 大阪店インスタンスに「在庫情報を教えて」と依頼
-    print(f"{osaka_store.name}:", osaka_store.get_current_stock_info())
-
-    # シナリオ1: 東京店インスタンスに「注文を処理して」と依頼
+    # シナリオ1: 物理商品 (成功)
     tokyo_store.process_order("p-001", 3)
 
-    # シナリオ2: 大阪店インスタンスに「注文を処理して」と依頼
-    osaka_store.process_order("p-002", 5)
-
-    # シナリオ3: 東京店インスタンスで在庫不足
+    # シナリオ2: 物理商品 (在庫不足)
     tokyo_store.process_order("p-002", 10)
 
-    # シナリオ4: 大阪店インスタンスでは同じ注文が成功
-    # 大阪店のインスタンスは、東京店の処理による影響を全く受けない
-    osaka_store.process_order("p-002", 10)
+    # シナリオ3: デジタル商品 (成功)
+    # 在庫5のキーボードと同じ数量(10)でも、デジタル商品なら成功する
+    tokyo_store.process_order("d-001", 10)
 
-    print("\n--- 最終在庫 ---")
-    print(f"{tokyo_store.name}:", tokyo_store.get_current_stock_info())
-    print(f"{osaka_store.name}:", osaka_store.get_current_stock_info())
+    print("\n--- 東京店 注文履歴 ---")
+    print(tokyo_store.get_order_history())
 ```
 
 -----
 
-## ✨ OOPによる改善点
+## `OOP-02`への準備
 
-手続き型（PP章）が抱えていた根本的な問題は、OOPの基本原則によって見事に解決されました。
+このコードは、`logic.py`でポリモーフィズムを活用することで、「新しい種類の商品（例：予約商品）」の追加には柔軟に対応できる**可能性**があります (OCP/LSP)。
 
-### 1\. 🛡️ カプセル化 (安全性向上)
+しかし、`Store`クラスに、注文処理フロー、商品データ管理、注文ログ保存など、多くの機能が**集中**しているようにも見えます。
 
-`Product` クラスは在庫（`_stock`）を、`Store` クラスは商品リスト（`_products`）を内部に保持し、外部（`main.py`）からの不正なアクセスを防ぎます。
-`main.py` は `tokyo_store._stock = 9999` のような不正操作（`PP-02` の紳士協定破り）を試みる必要がなく、`process_order` という安全な窓口に「依頼」するだけです。**データとそれを操作するロジックが一体化**し、安全性が格段に向上しました。
+このコードは「**変更**」に対してどれだけ強いのでしょうか？ 特に、**データ保存の方法**（今はメモリ）を変えたい場合や、**注文処理のルール**を変えたい場合に、どこを修正する必要があるでしょうか？
 
-### 2\. 👥 複数インスタンスの生成 (概念の実現)
+次の章では、この`OOP-01`のコードが「**良い設計**」と呼べるかどうか、**SOLID原則**というものさしを使って詳しく評価（健康診断）してみましょう。
 
-`Store` クラスという「店舗の設計図」から、`tokyo_store` と `osaka_store` という、それぞれが独立したデータ（在庫や注文履歴）を持つ「実体（インスタンス）」を簡単に生成できました。これは、`PP-03` で巨大な辞書（`_STORES_DATA`）を使って擬似的に実現しようとして破綻したことと対照的です。
 
-### 3\. 🧠 コードの直感性 (現実との一致)
-
-`logic.process_order("tokyo", ...)` という不自然な関数呼び出しは、`tokyo_store.process_order(...)` という、\*\*「東京店（というモノ）に、注文処理を（依頼）する」\*\*という現実世界のメンタルモデルに近い、非常に直感的で分かりやすいコードに変わりました。
-
------
-
-## 🚧 次の課題: 「良い設計」への探求
-
-このOOPによる設計は、手続き型プログラミングが抱えていた問題を見事に解決しました。
-
-しかし、このコードは本当に「**良い設計**」と言えるでしょうか？
-
-例えば、`Store` クラスの `process_order` メソッドは、`Product` クラスの具体的な処理（`check_stock`, `reduce_stock`）を「知っている」状態、すなわち**強く依存**しています。また、注文記録（`order_record`）を作成するという別の責任も持っています。
-
-このコードは「動く」ものの、将来の変更（例えば「ダウンロード商品」への対応や、「注文記録」の仕様変更）に対して、まだ脆（もろ）さを抱えています。
-
-次の章では、この設計が「**変更に強い、良い設計**」かどうかを判断するための有名な指針である **SOLID原則** に照らし合わせて評価してみましょう。

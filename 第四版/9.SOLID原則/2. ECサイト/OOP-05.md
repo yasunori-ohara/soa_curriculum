@@ -1,207 +1,132 @@
-
-# OOP-05 : CAによる組立 - アダプター層と依存性の注入(DI)
+# OOP-05 : CAの「型」による組立 (3) - 依存性の注入 (DI)
 
 `OOP-04`までに、CAの主要なレイヤー（ドメイン、ユースケース、インフラ）を実装しました。しかし、これらはまだ「部品」としてバラバラな状態です。
 
-  * `UseCase`は`IPresenter`（抽象）に結果を渡すが、その「実装（画面表示役）」がいない。
-  * `UseCase`を「誰が」呼び出すのか（入力の受付役）がいない。
-  * `UseCase`が依存する`IRepository`（抽象）に、どの「実装（インメモリ版）」を渡すのか、誰も決めていない。
+  * `ProcessOrderUseCase`（ユースケース）が依存する`IProductRepository`（抽象）に、どの「実装（`InMemory...`版）」を渡すのか、誰も決めていません。
+  * `ProcessOrderUseCase`を「誰が」呼び出すのかが決まっていません。
 
-この章では、これらの部品を組み立て、システム全体を完成させます。
+この章では、これらの部品を**組み立て**、システム全体を完成させます。
 
 ## 🎯 この章のゴール
 
-  * **アダプター層 (Interface Adapters)** の役割（＝データの変換）を理解する。
-  * **プレゼンター**（出力アダプター）と**コントローラー**（入力アダプター）を実装する。
-  * `main.py`（起動層）で、**依存性の注入 (DI)** を行い、システム全体を組み立てる。
-  * CAアーキテクチャで、`OOP-01`のシナリオが実行できることを確認する。
+  * `main.py`（起動層）が**依存性の注入 (DI)** を行う「組立工場」の役割を担うことを理解する。
+  * `main.py`で、具象クラスをインスタンス化し、インターフェースを介して依存関係を解決するコードを実装する。
+  * CAの「型」にはめたアーキテクチャで、`OOP-01`のシナリオが実行できることを確認する。
 
 -----
 
-## 🎯 1\. アダプター層 (Interface Adapters) の実装
-
-「アダプター層」は、CAの内側（ユースケース）と外側（インフラ、Web、コンソール）の間で、**データ形式を変換する**責務を持ちます。
-
-> **`adapters.py` (新設)**
-
-```python
-from application_boundaries import (
-    IProcessOrderUseCase, IProcessOrderPresenter,
-    ProcessOrderRequest, ProcessOrderResponse
-)
-
-class ConsolePresenter(IProcessOrderPresenter):
-    """
-    【出力アダプター】プレゼンターの「コンソール」実装。
-    ユースケース層から渡された「レスポンス(DTO)」を、
-    人間が読める「コンソール出力(文字列)」に変換する。
-    """
-    def present_success(self, response: ProcessOrderResponse):
-        order = response.order
-        print("\n--- 注文成功 ---")
-        print(f"  商品名: {order.product_name}")
-        print(f"  数量: {order.quantity}")
-        print(f"  合計金額: {order.total_price}")
-        print(f"  注文日時: {order.order_date}")
-        print(f"  （処理後の在庫: {response.updated_stock}）")
-
-    def present_failure(self, error: str):
-        print(f"\n--- 注文失敗 ---")
-        print(f"  エラー: {error}")
-
-class OrderController:
-    """
-    【入力アダプター】コントローラー。
-    外部（今回は main.py）からの「単純な入力(str, int)」を、
-    ユースケース層が理解できる「リクエスト(DTO)」に変換して呼び出す。
-    """
-    def __init__(self, use_case: IProcessOrderUseCase):
-        # 【DIP】具象(ProcessOrderUseCase)ではなく、抽象に依存
-        self._use_case = use_case
-
-    def process_order(self, product_id: str, quantity: int, store_name: str):
-        """
-        外部からの入力を受け付け、ユースケースを起動する
-        """
-        # 1. 外部からの入力を「リクエストDTO」に変換
-        request = ProcessOrderRequest(
-            product_id=product_id,
-            quantity=quantity,
-            store_name=store_name
-        )
-        # 2. ユースケース（抽象）のハンドルを呼び出す
-        self._use_case.handle(request)
-```
-
------
-
-## 🎯 2\. 起動層 (main.py) での依存性の注入 (DI)
+## 🛠️ 1\. 起動層 (main.py) での依存性の注入 (DI)
 
 `main.py`は、CAの最も外側の層（あるいは層の外）です。
 **唯一の責務は、すべての「具象クラス」をインスタンス化し、依存関係に従ってそれらを「組み立てる（注入する）」ことです。**
 
-（※`main.py`から初期データを登録できるよう、`OOP-04`の`infrastructure.py`に`add_product`メソッドを追加したと仮定します）
-
-> **`infrastructure.py` (OOP-04からの修正・追加)**
-
-```python
-from domain import Product
-# ... (InMemoryProductRepository 内) ...
-class InMemoryProductRepository:
-    # ... (init, find_by_id, save は同じ) ...
-    
-    def add_product(self, product: Product, store_name: str):
-        """【新設】main.pyから初期データを登録するためのメソッド"""
-        store_db = self._products_data.get(store_name)
-        if store_db is not None:
-            store_db[product.product_id] = product
-        else:
-            # (簡易的に店舗コンテキストも自動作成)
-            self._products_data[store_name] = {product.product_id: product}
-            self._orders_data[store_name] = [] # OrderRepo側も初期化
-```
+`main.py`だけが、`ProcessOrderUseCase`（ユースケース）と`InMemoryProductRepository`（インフラ）の**両方を知っている**、唯一の場所となります。
 
 > **`main.py` (OOP-01からの全面改訂)**
 
 ```python
-from domain import Product  # ドメイン層（エンティティ）
-from application import ProcessOrderUseCase  # アプリケーション層（ユースケース）
-from infrastructure import (
-    InMemoryProductRepository,  # インフラ層（リポジトリ実装）
-    InMemoryOrderRepository
-)
-from adapters import ConsolePresenter, OrderController  # アダプター層
+# --- インポートするものが劇的に変わる ---
+
+# 1. ドメイン層（具象エンティティ）
+from domain import PhysicalProduct, DigitalProduct
+
+# 2. アプリケーション層（具象ユースケース）
+from application import ProcessOrderUseCase
+
+# 3. インフラ層（具象リポジトリ）
+from infrastructure import InMemoryProductRepository, InMemoryOrderRepository
 
 # (注意)
 # main.py は「起動層」であるため、唯一
 # *すべて*の具象クラスを知っている（インポートしている）ファイルとなる。
+# application_boundaries.py (抽象) はインポートしない。
 
 if __name__ == "__main__":
-    
+
     # --- 1. 依存性の注入 (DI) ---
     # CAの「外側」から「内側」へと依存関係を組み立てていく
-    
+
     # a. インフラ層（最も外側）の具象インスタンスを生成
     product_repo = InMemoryProductRepository()
     order_repo = InMemoryOrderRepository()
-    
-    # b. アダプター層（プレゼンター）の具象インスタンスを生成
-    presenter = ConsolePresenter()
-    
-    # c. アプリケーション層（ユースケース）を生成
-    #    -> インターフェース(I...Repository, I...Presenter)越しに
-    #       具象インスタンスを「注入」する
+
+    # b. アプリケーション層（ユースケース）を生成
+    #    -> コンストラクタ（__init__）を経由して、
+    #       具象インスタンス（product_repo, order_repo）を「注入」する
+    #    -> UseCaseは、自分が InMemory を使っているとは知らない
     order_use_case = ProcessOrderUseCase(
         product_repo=product_repo,
-        order_repo=order_repo,
-        presenter=presenter
+        order_repo=order_repo
     )
-    
-    # d. アダプター層（コントローラー）を生成
-    #    -> インターフェース(I...UseCase)越しに
-    #       具象インスタンスを「注入」する
-    controller = OrderController(use_case=order_use_case)
 
     # --- 2. 初期データのセットアップ ---
-    # (本来はDBマイグレーション等が担うが、今回はDI層で行う)
-    # (※インフラ層に add_product が必要)
-    product_repo.add_product(Product("p-001", "高機能マウス", 4000, 10), "東京店")
-    product_repo.add_product(Product("p-002", "静音キーボード", 6000, 5), "東京店")
-    product_repo.add_product(Product("p-003", "24インチモニター", 25000, 3), "東京店")
-    
-    product_repo.add_product(Product("p-001", "高機能マウス", 4100, 8), "大阪店")
-    product_repo.add_product(Product("p-002", "静音キーボード", 6000, 12), "大阪店")
-    product_repo.add_product(Product("p-003", "24インチモニター", 25500, 5), "大阪店")
+    # (OOP-01の main.py が担っていた処理)
+    # 本来はユースケース(AddProductUseCase)経由で実行すべきだが、
+    # 今回は簡略化のため、インフラ(リポジトリ)を直接操作する
+    product_repo.add(
+        PhysicalProduct("p-001", "高機能マウス", 4000, 10), "東京店"
+    )
+    product_repo.add(
+        PhysicalProduct("p-002", "静音キーボード", 6000, 5), "東京店"
+    )
+    product_repo.add(
+        DigitalProduct("d-001", "デザインソフト eBook", 8000), "東京店" # デジタル商品
+    )
+    # (大阪店のデータ追加は省略)
+
 
     # --- 3. アプリケーションの実行 ---
-    # OOP-01 と同じシナリオを「コントローラー経由」で実行する
-    
-    # (在庫表示ロジックは今回省略)
-    
-    # シナリオ1: 東京店インスタンスに「注文を処理して」と依頼
-    print("--- シナリオ1 東京店 注文 ---")
-    controller.process_order("p-001", 3, "東京店")
+    # OOP-01 と同じシナリオを「ユースケース経由」で実行する
 
-    # シナリオ2: 大阪店インスタンスに「注文を処理して」と依頼
-    print("\n--- シナリオ2 大阪店 注文 ---")
-    controller.process_order("p-002", 5, "大阪店")
+    # シナリオ1: 物理商品 (成功)
+    # UseCaseのexecuteメソッドを直接呼び出す
+    order_use_case.execute("p-001", 3, "東京店")
 
-    # シナリオ3: 東京店インスタンスで在庫不足
-    print("\n--- シナリオ3 東京店 在庫不足 ---")
-    controller.process_order("p-002", 10, "東京店")
+    # シナリオ2: 物理商品 (在庫不足)
+    order_use_case.execute("p-002", 10, "東京店")
 
-    # シナリオ4: 大阪店インスタンスでは同じ注文が成功
-    print("\n--- シナリオ4 大阪店 注文（成功） ---")
-    controller.process_order("p-002", 10, "大阪店") # OOP-01では失敗例だったが、在庫12なので成功
+    # シナリオ3: デジタル商品 (成功)
+    order_use_case.execute("d-001", 10, "東京店")
+
+    print("\n--- 東京店 注文履歴 ---")
+    # (UseCase に履歴取得機能がないため、リポジトリを直接参照)
+    print(order_repo.find_all_by_store("東京店"))
+
 ```
 
 -----
 
-## ✨ CAリファクタリングによるSOLID原則の達成
+## 🛠️ 2\. リファクタリングの完了
 
-`OOP-01`のコードをCAのレイヤーに分離・再配置しただけで、`OOP-02`で指摘された主要なSOLID原則違反が解消されました。
+これで、`OOP-01`の`Store`（神クラス）を、クリーンアーキテクチャ（CA）の「型」に従ってリファクタリングする作業が**完了**しました。
 
-1.  **S (単一責任) の達成**:
-    `Store`という神クラス（God Class）は消滅しました。
+`OOP-01`のコードは、`logic.py`という単一のファイルにロジックが集中していましたが、リファクタリング後のコードは、以下の5つの明確な「関心事（レイヤー）」に分離されました。
 
-      * **ドメインルール**: `Product`, `Order` (エンティティ)
-      * **アプリ手順**: `ProcessOrderUseCase` (ユースケース)
-      * **データ保存**: `InMemory...Repository` (インフラ)
-      * **入出力変換**: `OrderController`, `ConsolePresenter` (アダプター)
-        すべてのクラスが「変更される理由」を一つだけ持つようになりました。
+  * **`domain.py`**:
+      * **関心事**: ビジネスのルール（在庫管理方法など）
+  * **`application_boundaries.py`**:
+      * **関心事**: レイヤー間の「契約（インターフェース）」
+  * **`application.py`**:
+      * **関心事**: ビジネスの手順（いつ、何を呼び出すか）
+  * **`infrastructure.py`**:
+      * **関心事**: データの保存方法（どうやって保存するか）
+  * **`main.py`**:
+      * **関心事**: すべての「部品（具象クラス）」を組み立てる（DI）
 
-2.  **D (依存性逆転) の達成**:
-    CAの「依存性のルール」を強制した結果、DIPが完全に達成されました。
+`main.py`を除くすべてのファイル（`application.py`など）は、`InMemory...`といった**具体的な実装**を一切知らず、`I...Repository`という\*\*抽象的なインターフェース（境界）\*\*にのみ依存する、非常に柔軟な構造になりました。
 
-      * `ProcessOrderUseCase`（アプリ層）は、`InMemory...Repository`（インフラ層）の**具象を知りません**。`IRepository`という\*\*抽象（インターフェース）\*\*にのみ依存します。
-      * `main.py`が、抽象に具象を「注入（DI）」することで、依存関係の制御が一箇所に集約されました。
+-----
 
-3.  **O (オープン・クローズド) の達成**:
-    このアーキテクチャは「変更に強い」ものになりました。
+## 🚧 次の課題（謎解き）
 
-      * **もし「ダウンロード商品」を追加したくなったら？**
-        `domain.py`に`DigitalProduct`を追加し、`application_boundaries.py`の`IProduct`インターフェースを実装させます。`OOP-01`のように`if`文で`Product`クラスを**修正**する必要はありません（※）。`UseCase`は`IProduct`（抽象）にしか依存していないため、何も修正は不要です。
-      * **もし「保存先をDB」に変更したくなったら？**
-        `infrastructure.py`に`DatabaseProductRepository`クラスを新設し、`main.py`で注入する具象クラスを`InMemory...`から`Database...`に差し替えるだけです。`UseCase`や`Domain`のコードには一切触る必要がありません。
+さて、**私たちのリファクタリングは完了しました**。
+CAの「型」に従って「関心の分離」と「依存性のルール」を守ったことで、`OOP-01`よりもはるかに見通しが良く、変更に強い（例：DBへの変更が容易な）コードが完成しました。
 
-（※ただし、`OOP-04`の`Product`クラス（物理商品）は、OCP/LSPの観点ではまだ課題を抱えています。これが次のステップです。）
+-----
+
+ところで、`OOP-02`のSOLID原則評価のことを覚えているでしょうか？
+あの時、`OOP-01`のコードは\*\*SRP（単一責任の原則）**と**DIP（依存性逆転の原則）\*\*に甚だしく違反している、と評価しました。
+
+**このCAリファクタリング（`OOP-03`〜`OOP-05`）は、これらの違反を解決できたのでしょうか？**
+
+次の章（`OOP-06`）で、このリファクタリング結果を、もう一度**SOLID原則**という「ものさし」で評価し直し、その「答え合わせ」をしてみましょう。

@@ -12,7 +12,7 @@
 
 -----
 
-## 1\. `employees.py` : 従業員クラスの定義
+## 🛠️ 1\. `employees.py` : 従業員クラスの定義
 
 このファイルは、「従業員」という概念をクラスとして定義する場所です。
 ここでは、オブジェクト指向の基本的な技術である\*\*継承（Inheritance）\*\*が使われています。
@@ -21,7 +21,7 @@
 
 次に、具体的な従業員である`FullTimeEmployee`（正社員）と`PartTimeEmployee`（パートタイマー）が、その`Employee`クラスを**継承**し、`calculate_pay`メソッドをそれぞれ独自の方法（月給制、時給制）で具体化（**実装**）しています。
 
-```python: employees.py
+```python
 from abc import ABC, abstractmethod
 
 class Employee(ABC):
@@ -67,12 +67,12 @@ class PartTimeEmployee(Employee):
 
 -----
 
-## 2\. `system.py` : システムロジック
+## 🛠️ 2\. `system.py` : システムロジック
 
 このファイルは、システムの中核的なロジックを実装しています。
 `PayrollSystem`という一つのクラスが、従業員データの管理、給与計算の実行、支払ログの保存といった機能を提供します。
 
-```python: system.py
+```python
 import datetime
 # employees.py で定義した Employee (基底クラス) をインポート
 from employees import Employee 
@@ -136,11 +136,11 @@ class PayrollSystem:
 
 -----
 
-## 3\. `main.py` : システムの実行
+## 🛠️ 3\. `main.py` : システムの実行
 
 このファイルは、`PayrollSystem`クラスをインスタンス化（実体化）し、実際にシステムを動かす役割を持ちます。
 
-```python: main.py
+```python
 # employees.py から「具体的な」従業員クラスをインポート
 from employees import FullTimeEmployee, PartTimeEmployee
 # system.py から「ロジック」クラスをインポート

@@ -1,277 +1,289 @@
+# OOP-08: DDD適用 (2) - 境界、ユースケース、インフラ、DIの追従
 
-# OOP-08 : OCP/LSPの達成 - ポリモーフィズムによるドメイン拡張
+`OOP-07`では、ドメイン層（`domain.py`）に\*\*値オブジェクト（VO）**と**集約（`Store`）\*\*を導入し、ビジネスルールとロジックを強化しました。
 
-`OOP-07`までのリファクタリングにより、アーキテクチャはクリーンになり、ドメインロジックは（VOと集約によって）堅牢になりました。
+この変更はドミノのように波及し、ドメイン層とやり取りする他のレイヤー（境界、ユースケース、インフラ、DI）にも修正が必要になります。
 
-しかし、`OOP-02`で指摘された「**ダウンロード商品の追加**」という変更要求には、まだ耐えられません。
-現在の`domain.py`の`Product`エンティティは、「物理在庫（`stock: Quantity`）」を持つこと（`__init__`）を前提としています。`Store`集約の`process_order`ロジックも、`product.reduce_stock()`が必ず存在する物理在庫を減らすことを期待しています。
-
-このままでは、「在庫の概念がない」`DigitalProduct`を追加しようとすると、`Product`クラスや`Store`集約の`process_order`メソッドに`if`文による**修正**が必要となり、\*\*OCP（オープン・クローズドの原則）\*\*に違反します。
-
-この問題は、`DigitalProduct`が`Product`の振る舞い（物理在庫の管理）を正しく**置換**できないという\*\*LSP（リスコフの置換原則）\*\*違反でもあります。
-
-この章では、OCP/LSPを達成するため、ドメイン層の内部に\*\*DIP（依存性逆転の原則）\*\*を適用し、**ポリモーフィズム**（多態性）を実現します。
+この章では、`OOP-07`の変更に合わせて、これらの外部レイヤーを修正し、システム全体を再び動作する状態に戻します。
 
 ## 🎯 この章のゴール
 
-  * `Store`集約（高レベル）が、`Product`の「実装（物理在庫）」（低レベル）に依存しているという、**ドメイン層内部のDIP違反**を特定する。
-  * OCP違反を解決する鍵が、LSPの遵守とDIPの適用にあることを理解する。
-  * `Store`集約が依存すべき「**`IProduct`インターフェース**」をドメイン層に定義する。
-  * `PhysicalProduct`と`DigitalProduct`が、**ポリモーフィズム**（多態性）によって`Store`集約から区別なく扱われる様子を実装する。
-  * **OCP（オープン・クローズドの原則）を達成し、`Store`や`UseCase`を一切修正せず**に、新機能（ダウンロード商品）を**追加**する。
+  * `OOP-07`のドメイン変更（VO、集約）に伴い、境界（`application_boundaries.py`）を修正する。
+  * ビジネスロジックが集約に移動したことでスリム化されたユースケース（`application.py`）を実装する。
+  * インフラ層（`infrastructure.py`）を`IStoreRepository`に準拠させる。
+  * `main.py`（DI層）を修正し、集約をリポジトリ経由で正しく注入してアプリケーションを動作させる。
 
 -----
 
-## 1\. ドメイン層 (domain.py) へのDIP適用
+## 🛠️ 1\. 境界 (Application Boundaries) の修正
 
-OCP違反の根本原因は、`Store`集約（高レベルな方針）が、`Product`エンティティ（物理在庫を持つという低レベルな実装）という**具象クラス**に直接依存していることです。
+`domain.py`の変更に合わせて、インターフェースとDTO（Data Transfer Object）を修正します。
 
-この依存関係を**逆転**させるため、`Store`集約が本当に必要とする「**商品としての契約（インターフェース）**」を`IProduct`として定義します。
+> **`application_boundaries.py` (OOP-03からの改訂)**
 
-> **`domain.py` (OOP-06からの改訂)**
+```python
+from abc import ABC, abstractmethod
+# domain から Store 集約と IProduct (子要素アクセス用) をインポート
+from domain import IProduct, Store, OrderData
+# domain_vo から Quantity VO をインポート
+from domain_vo import Quantity
+
+# --- DTO (Data Transfer Objects) ---
+# (OrderDataはdomain.pyに移動したので削除)
+
+# --- ユースケース層の「境界」 ---
+class IProcessOrderUseCase(ABC):
+    @abstractmethod
+    def execute(self, product_id: str, quantity: int, store_name: str): # 入力はまだint
+        pass
+
+# --- インフラ層の「境界」 ---
+class IStoreRepository(ABC):
+    """
+    【変更】Store集約を永続化するリポジトリ。
+    IProductRepository は不要になった。
+    """
+    @abstractmethod
+    def find_by_name(self, store_name: str) -> Store | None:
+        """【契約】名前でStore集約を取得する"""
+        pass
+
+    @abstractmethod
+    def save(self, store: Store):
+        """【契約】Store集約の状態を保存（追加・更新）する"""
+        pass
+
+class IOrderRepository(ABC):
+    """(変更) 保存するデータ型をOrderDataに変更"""
+    @abstractmethod
+    def save(self, order_data: OrderData, store_name: str): # OrderData DTOを保存
+        """【契約】注文記録(DTO)を保存する"""
+        pass
+
+    @abstractmethod
+    def find_all_by_store(self, store_name: str) -> list[OrderData]: # OrderData DTOを返す
+        """【契約】指定された店舗の全注文記録(DTO)を取得する"""
+        pass
+
+# (IProductRepositoryは削除)
+```
+
+-----
+
+## 🛠️ 2\. アプリケーション層 (Use Cases) の修正
+
+ドメインロジックが集約に移動したため、ユースケースは劇的にスリムになります。「オーケストレーター」としての役割に集中します。
+
+> **`application.py` (OOP-04からの改訂)**
 
 ```python
 import datetime
-from domain_vo import Money, Quantity
-from abc import ABC, abstractmethod # インターフェース定義のためにABCをインポート
+from application_boundaries import (
+    IProcessOrderUseCase,
+    IStoreRepository, # IProductRepository -> IStoreRepository
+    IOrderRepository,
+    # OrderData は domain に移動
+)
+from domain import Store, OrderData # StoreとOrderDataをdomainからインポート
+from domain_vo import Quantity # VOをインポート
 
-# --- 1. 【新設】Productの抽象インターフェース ---
-class IProduct(ABC):
+class ProcessOrderUseCase(IProcessOrderUseCase):
     """
-    「商品」としてStore集約から扱われるための「契約（インターフェース）」。
-    Storeは、具象クラスではなく、この抽象に依存する。
+    【変更】ユースケースが劇的にスリムになった。
+    ドメインの調整役ではなく、薄い「オーケストレーター」になった。
     """
-    @property
-    @abstractmethod
-    def product_id(self) -> str: ...
-    
-    @property
-    @abstractmethod
-    def name(self) -> str: ...
-    
-    @property
-    @abstractmethod
-    def price(self) -> Money: ...
+    def __init__(self,
+                 store_repo: IStoreRepository, # 変更
+                 order_repo: IOrderRepository):
+        self._store_repo = store_repo
+        self._order_repo = order_repo
+        # (Presenterは省略)
 
-    @abstractmethod
-    def check_stock(self, quantity: Quantity) -> bool:
-        """【契約】指定された数量の在庫があるか"""
-        pass
+    def execute(self, product_id: str, quantity: int, store_name: str):
+        print(f"\n--- [{store_name}] 注文処理開始 (UseCase): 商品ID={product_id}, 数量={quantity} ---")
+        try:
+            # 1. 入力値(int)を「VO」に変換 (不正な値はここでエラー)
+            quantity_vo = Quantity(quantity)
 
-    @abstractmethod
-    def reduce_stock(self, quantity: Quantity):
-        """【契約】指定された数量の在庫を減らす"""
-        pass
+            # 2. Store集約をリポジトリ[抽象]から「読み出す」
+            store = self._store_repo.find_by_name(store_name)
+            if not store:
+                raise ValueError(f"店舗 '{store_name}' が見つかりません。")
 
-# --- 2. 【変更】OOP-06のProductを「物理商品」として実装 ---
-class PhysicalProduct(IProduct):
-    """
-    「物理商品」の具象実装クラス。
-    IProductインターフェースの契約を実装する。
-    """
-    def __init__(self, product_id: str, name: str, price: Money, stock: Quantity):
-        self._product_id = product_id
-        self._name = name
-        self._price = price
-        self._stock = stock # 物理在庫を持つ
+            # 3. ドメイン(集約)に処理を「命じる」(Tell, Don't Ask)
+            #    ロジックの詳細はユースケースは「知らない」
+            order_data: OrderData = store.process_order(product_id, quantity_vo)
 
-    @property
-    def product_id(self) -> str: return self._product_id
-    @property
-    def name(self) -> str: return self._name
-    @property
-    def price(self) -> Money: return self._price
-    
-    @property
-    def stock(self) -> Quantity: return self._stock
+            # 4. 変更されたStore集約をリポジトリ[抽象]に「保存する」
+            self._store_repo.save(store)
 
-    def check_stock(self, quantity: Quantity) -> bool:
-        """【実装】物理在庫が十分か確認する"""
-        return self._stock >= quantity
+            # 5. 生成された注文データ(OrderData)をリポジトリ[抽象]に「保存する」
+            self._order_repo.save(order_data, store_name)
 
-    def reduce_stock(self, quantity: Quantity):
-        """【実装】物理在庫を減らす"""
-        if not self.check_stock(quantity):
-            raise ValueError(f"{self.name}の在庫が不足しています。")
-        self._stock = self._stock - quantity
-        print(f"在庫更新: {self.name}の在庫が{self._stock.value}になりました。")
+            print(f"注文成功(UseCase): [{store_name}] {order_data.product_name} を {order_data.quantity.value} 個受け付けました。")
+            # (成功時のPresenter呼び出しなど)
 
+        except (ValueError, TypeError) as e:
+            # (失敗時のPresenter呼び出しなど)
+            print(f"エラー(UseCase): [{store_name}] {e}")
 
-# --- 3. 【新設】OCP達成のための「ダウンロード商品」実装 ---
-class DigitalProduct(IProduct):
-    """
-    「ダウンロード商品」の具象実装クラス。
-    IProductインターフェースの契約を「異なる振る舞い」で実装する。
-    """
-    def __init__(self, product_id: str, name: str, price: Money):
-        self._product_id = product_id
-        self._name = name
-        self._price = price
-        # (LSP) stock属性は持たない
-    
-    @property
-    def product_id(self) -> str: return self._product_id
-    @property
-    def name(self) -> str: return self._name
-    @property
-    def price(self) -> Money: return self._price
-
-    def check_stock(self, quantity: Quantity) -> bool:
-        """【実装】ダウンロード商品は在庫をチェックしない（常にTrue）"""
-        return True
-
-    def reduce_stock(self, quantity: Quantity):
-        """【実装】ダウンロード商品は在庫を減らさない（何もしない）"""
-        print(f"在庫更新: {self.name} はダウンロード商品のため在庫変動なし。")
-        pass # LSPを遵守：例外を投げず、振る舞いを実装する
-
-# --- (Orderエンティティは変更なし) ---
-class Order: ...
-
-# --- 4. 【変更】Store集約は「IProduct(抽象)」に依存する ---
-class Store:
-    """
-    「店舗」集約ルート。
-    DIPにより、具象(Physical/Digital)ではなく、抽象(IProduct)に依存する。
-    """
-    def __init__(self, name: str):
-        self.name = name
-        # 【DIP】IProductインターフェースの辞書を保持
-        self._products: dict[str, IProduct] = {}
-
-    def add_product(self, product: IProduct): # 【DIP】引数もIProduct
-        """集約内に「IProduct(抽象)」を追加する"""
-        self._products[product.product_id] = product
-
-    def _find_product(self, product_id: str) -> IProduct | None: # 【DIP】戻り値もIProduct
-        return self._products.get(product_id)
-
-    def process_order(self, product_id: str, quantity: Quantity) -> Order:
-        """
-        【重要】このメソッドのコードは OOP-06 から「一切変更なし」
-        """
-        product = self._find_product(product_id)
-        if not product:
-            raise ValueError("指定された商品が見つかりません。")
-
-        # ▼▼▼ ポリモーフィズム（多態性） ▼▼▼
-        # product が PhysicalProduct か DigitalProduct かを
-        # Store集約は「一切意識する必要がない」
-        #
-        # ただ「IProduct(契約)」通りに check_stock() を呼び出すだけ。
-        #
-        # 実行される「具体的な処理」は、Pythonが自動的に判断する。
-        # - 相手が PhysicalProduct なら：在庫数を比較する処理
-        # - 相手が DigitalProduct なら：常に True を返す処理
-        if not product.check_stock(quantity): # <- Storeは変更不要
-             # DigitalProductの場合、ここは絶対にFalseにならない
-            raise ValueError(f"{product.name}の在庫が不足しています。")
-
-        # ▼▼▼ ポリモーフィズム（多態性） ▼▼▼
-        # reduce_stock() も同様。
-        # - 相手が PhysicalProduct なら：在庫数を減らす処理
-        # - 相手が DigitalProduct なら：何もしない処理
-        product.reduce_stock(quantity) # <- Storeは変更不要
-
-        # --- (注文作成ロジックも変更なし) ---
-        total_price = product.price * quantity.value
-        order = Order(
-            product_name=product.name,
-            quantity=quantity,
-            total_price=total_price
-        )
-        return order
 ```
 
 -----
 
-## 2\. 起動層 (main.py) での「拡張」
+## 🛠️ 3\. インフラストラクチャ層 (Infrastructure) の修正
 
-`domain.py`（ドメイン層）と`application.py`（ユースケース層）のコードは**一切修正していません**。
-変更が必要なのは、DI（依存性の注入）を担当する`main.py`で、「**どの具象クラスを注入するか**」を決定する部分だけです。
+`IProductRepository`が廃止され、`IStoreRepository`が新設されたため、`infrastructure.py`を修正します。
 
-> **`main.py` (OOP-07からの修正)**
+> **`infrastructure.py` (OOP-04からの改訂)**
 
 ```python
-# 【追加】DigitalProduct もインポート
-from domain import PhysicalProduct, DigitalProduct, Store
+import datetime
+from application_boundaries import (
+    IStoreRepository, # IProductRepository -> IStoreRepository
+    IOrderRepository,
+    # OrderData は domain に移動
+)
+# domain から Store集約, IProduct, OrderData をインポート
+from domain import IProduct, Store, OrderData
+# domain_vo から VO をインポート (初期データ生成用)
 from domain_vo import Money, Quantity
-from application import ProcessOrderUseCase
-from infrastructure import InMemoryStoreRepository, InMemoryOrderRepository
-from adapters import ConsolePresenter, OrderController
 
-if __name__ == "__main__":
-    
-    # --- 1. 依存性の注入 (DI) ---
-    # (OOP-07から一切変更なし)
-    store_repo = InMemoryStoreRepository()
-    order_repo = InMemoryOrderRepository()
-    presenter = ConsolePresenter()
-    order_use_case = ProcessOrderUseCase(
-        store_repo=store_repo,
-        order_repo=order_repo,
-        presenter=presenter
-    )
-    controller = OrderController(use_case=order_use_case)
+class InMemoryStoreRepository(IStoreRepository):
+    """
+    【変更】IStoreRepositoryの「インメモリ」実装。
+    Store集約を丸ごと辞書で管理する。
+    """
+    def __init__(self):
+        # 店舗名をキーに、Store集約インスタンスを保持
+        self._stores: dict[str, Store] = {}
 
-    # --- 2. 初期データのセットアップ (DigitalProduct を「追加」) ---
-    
-    tokyo_store = Store("東京店")
-    # 【変更】Product -> PhysicalProduct
-    tokyo_store.add_product(PhysicalProduct("p-001", "高機能マウス", Money(4000), Quantity(10)))
-    tokyo_store.add_product(PhysicalProduct("p-002", "静音キーボード", Money(6000), Quantity(5)))
-    # 【新設】DigitalProduct を「追加」
-    tokyo_store.add_product(DigitalProduct("d-001", "デザインソフト eBook", Money(8000)))
-    store_repo.save(tokyo_store)
+    def find_by_name(self, store_name: str) -> Store | None:
+        """【実装】メモリ上の辞書からStoreインスタンスを探す"""
+        # メモリなので「実体」を返す (DBなら再構築)
+        found = self._stores.get(store_name)
+        if found:
+            print(f"店舗データ取得(Infra): '{store_name}' のStoreオブジェクトを返します。")
+        else:
+            print(f"店舗データ取得(Infra): '{store_name}' は見つかりませんでした。")
+        return found
 
-    osaka_store = Store("大阪店")
-    osaka_store.add_product(PhysicalProduct("p-001", "高機能マウス", Money(4100), Quantity(8)))
-    # 【新設】DigitalProduct を「追加」
-    osaka_store.add_product(DigitalProduct("d-002", "プログラミング講座 動画", Money(12000)))
-    store_repo.save(osaka_store)
+    def save(self, store: Store):
+        """
+        【実装】Store集約の状態を丸ごと保存（上書き）する。
+        集約内のProductの在庫変更も、これで永続化される。
+        """
+        self._stores[store.name] = store
+        print(f"店舗データ保存(Infra): [{store.name}] Store集約の状態を保存しました。")
 
-    # --- 3. アプリケーションの実行 (DigitalProduct のシナリオを「追加」) ---
-    
-    # シナリオ1: 東京店 物理商品 (成功)
-    print("--- シナリオ1 東京店 物理商品 注文 ---")
-    controller.process_order("p-001", 3, "東京店")
+class InMemoryOrderRepository(IOrderRepository):
+    """
+    【変更】IOrderRepositoryの「インメモリ」実装。
+    OrderData(DTO)を保存・取得するように変更。
+    """
+    def __init__(self):
+        self._orders_data: dict[str, list[OrderData]] = {}
 
-    # シナリオ2: 東京店 物理商品 (在庫不足)
-    print("\n--- シナリオ2 東京店 物理商品 在庫不足 ---")
-    controller.process_order("p-002", 10, "東京店")
+    def save(self, order_data: OrderData, store_name: str):
+        """【実装】メモリ上のリストに注文記録(DTO)を追加"""
+        if store_name not in self._orders_data:
+            self._orders_data[store_name] = []
+        self._orders_data[store_name].append(order_data)
+        print(f"注文記録保存(Infra): [{store_name}] {order_data.product_name} の記録を追加しました。")
 
-    # シナリオ3: 【新】東京店 デジタル商品 (成功)
-    print("\n--- シナリオ3 東京店 デジタル商品 注文 ---")
-    # 物理在庫が5の「静音キーボード」と同じ数量(10)でも、
-    # DigitalProductなら在庫チェックがTrueになり、注文が成功する。
-    # UseCaseもStoreも、この振る舞いの違いを「知らない」。
-    controller.process_order("d-001", 10, "東京店")
+    def find_all_by_store(self, store_name: str) -> list[OrderData]:
+        """【実装】メモリ上のリストから指定店舗の全注文記録(DTO)を取得"""
+        return self._orders_data.get(store_name, [])
+
 ```
 
 -----
 
-## ✨ 謎解き - なぜこの変更がSOLID原則を達成したのか？
+## 🛠️ 4\. 起動層 (main.py) での依存性の注入 (DI)
 
-### OCP（オープン・クローズドの原則）の達成
+リポジトリのインターフェースと実装が変わり、ドメインの初期化方法も変わったため、`main.py`を修正します。
 
-私たちは、「ダウンロード商品（`DigitalProduct`）」という**新機能**を追加しました。
-この変更のために、**既存のロジック**（`Store.process_order`や`ProcessOrderUseCase.handle`）を**一切「修正」しませんでした**。
-`DigitalProduct`という新しいクラスを「**追加**」し、`main.py`でそれを「**追加**」しただけです。
+> **`main.py` (OOP-05からの改訂)**
 
-`Store`（集約）と`ProcessOrderUseCase`（ユースケース）は、\*\*修正に対して閉じて（Closed）\*\*おり、\*\*拡張（`IProduct`を実装する新しいクラス）に対して開いて（Open）\*\*います。
-OCPは完全に達成されました。
+```python
+# --- インポート ---
+# ドメイン層: Store集約, 具体的なProduct, VO
+from domain import Store, PhysicalProduct, DigitalProduct, IProduct
+from domain_vo import Money, Quantity
 
-### LSP（リスコフの置換原則）の達成
+# アプリケーション層: 具体的なUseCase
+from application import ProcessOrderUseCase
 
-`Store`集約は、`IProduct`インターフェースに依存しています。
-`DigitalProduct`は、`IProduct`の**契約**（`check_stock`は`bool`を返す、`reduce_stock`は例外を投げない）を**完全に満たしています**。
-`reduce_stock`の振る舞いが「何もしない」ことであっても、それは`PhysicalProduct`の「在庫を減らす」という振る舞いと\*\*同等の契約（シグネチャ）\*\*を満たしています。
+# インフラ層: 具体的なRepository
+from infrastructure import InMemoryStoreRepository, InMemoryOrderRepository
 
-`Store`（利用者側）は、`IProduct`（親）の代わりに`DigitalProduct`（子）を**置換**されても、`if isinstance(...)` のような型チェックを**必要とせず**、プログラムは期待通りに動作します。LSPは達成されました。
+# (adapters.py は今回未使用)
 
-### DIP（依存性逆Tの原則）の達成
+if __name__ == "__main__":
 
-このOCP/LSP達成の**最大の功労者**がDIPです。
-`Store`（高レベルなロジック）が`PhysicalProduct`（低レベルな実装）に依存していた状態を**反転**させ、`Store`も`PhysicalProduct`も`DigitalProduct`も、全員が「`IProduct`」という**抽象（インターフェース）に依存する**ように設計しました。
+    # --- 1. 依存性の注入 (DI) ---
+    # a. インフラ層（具象）を生成
+    store_repo = InMemoryStoreRepository() # IProductRepository -> IStoreRepository
+    order_repo = InMemoryOrderRepository()
 
-これにより、CA/DDD/SOLIDのすべての原則を満たした、柔軟で堅牢、かつ保守性の高いアーキテクチャが完成しました。
+    # b. アプリケーション層（ユースケース）を生成し、具象リポジトリを注入
+    order_use_case = ProcessOrderUseCase(
+        store_repo=store_repo,
+        order_repo=order_repo
+    )
+
+    # --- 2. 初期データのセットアップ (集約スタイルに変更) ---
+    # a. 東京店（Store集約）の作成と初期化
+    tokyo_store = Store("東京店")
+    tokyo_store.add_product(
+        PhysicalProduct("p-001", "高機能マウス", Money(4000), Quantity(10))
+    )
+    tokyo_store.add_product(
+        PhysicalProduct("p-002", "静音キーボード", Money(6000), Quantity(5))
+    )
+    tokyo_store.add_product(
+        DigitalProduct("d-001", "デザインソフト eBook", Money(8000))
+    )
+    # b. 作成した集約をリポジトリに保存
+    store_repo.save(tokyo_store)
+
+    # (大阪店のセットアップは省略)
+
+    # --- 3. アプリケーションの実行 ---
+    # UseCaseのexecuteメソッドを呼び出す (OOP-05と同じ)
+
+    # シナリオ1: 物理商品 (成功)
+    order_use_case.execute("p-001", 3, "東京店")
+
+    # シナリオ2: 物理商品 (在庫不足 -> 例外発生)
+    order_use_case.execute("p-002", 10, "東京店")
+
+    # シナリオ3: デジタル商品 (成功)
+    order_use_case.execute("d-001", 10, "東京店")
+
+    # シナリオ4: 不正な数量 (VOで例外発生)
+    order_use_case.execute("p-001", -5, "東京店")
+
+
+    print("\n--- 東京店 注文履歴 ---")
+    # (UseCase に履歴取得機能がないため、リポジトリを直接参照)
+    history = order_repo.find_all_by_store("東京店")
+    for record in history:
+        print(f"  - {record.product_name}, Qty: {record.quantity.value}, Total: {record.total_price.value}")
+
+```
+
+-----
+
+## ✨ この変更の効果
+
+`OOP-07`で設計した「**値オブジェクト**」「**集約**」「**スリムなユースケース**」のアーキテクチャが、`main.py`まで一貫して適用され、動作するようになりました。
+
+  * **ドメイン中心**: ビジネスロジックがドメイン層（`Store`集約）に集約され、アプリケーション層（`UseCase`）は薄い調整役に徹しています。
+  * **堅牢性向上**: 値オブジェクト（`Quantity`など）が不正なデータをドメイン層の手前（`UseCase`）で弾くため、バグが入り込みにくくなりました。
+  * **責務の明確化**: 各レイヤー（ファイル）の責任がより明確になりました。
+
+-----
+
+これで、CA+DDDによるリファクタリングは一旦完了です。
+SOLID原則は`OOP-06`の時点で達成されていましたが、DDDのパターンを適用することで、コードの「質」（堅牢性、ドメイン知識の表現力）がさらに向上しました。

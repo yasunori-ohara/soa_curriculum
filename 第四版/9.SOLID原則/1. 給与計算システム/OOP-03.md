@@ -23,7 +23,7 @@
 
 -----
 
-## 1\. ドメイン層 (Entities) の明確化
+## 🛠️ 1\. ドメイン層 (Entities) の明確化
 
 CAで最も内側（核）となるのは、ビジネスそのもののルールを定義する「ドメイン層（Entities）」です。
 
@@ -33,7 +33,7 @@ CAで最も内側（核）となるのは、ビジネスそのもののルール
 
 > **`domain.py` (旧 `employees.py`)**
 
-```python: domain.py
+```python
 from abc import ABC, abstractmethod
 
 # (内容は OOP-01 の employees.py と同じ)
@@ -61,7 +61,7 @@ class PartTimeEmployee(Employee):
 
 -----
 
-## 2\. アプリケーション境界 (Interfaces) の定義
+## 🛠️ 2\. アプリケーション境界 (Interfaces) の定義
 
 ここがリファクタリングの核心です。
 `PayrollSystem`（神クラス）が持っていた「**複数の関心事**」を、CAの「型」に従って分離します。
@@ -117,7 +117,7 @@ class IPayLogRepository(ABC):
 
 -----
 
-## 3\. 設計図の完成
+## 🛠️ 3\. 設計図の完成
 
 `OOP-03`では、`OOP-01`の`PayrollSystem`を解体し、CAの「型」に従って3つの「**インターフェース（境界）**」を定義しました。
 

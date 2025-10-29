@@ -13,7 +13,7 @@
 
 -----
 
-## 1\. アプリケーション層 (Use Cases) の実装
+## 🛠️ 1\. アプリケーション層 (Use Cases) の実装
 
 「ユースケース」は、アプリケーションの「やりたいこと（例：給与支払を実行する）」を実現するための、具体的な手順を定義します。
 `OOP-01`の`PayrollSystem`が持っていた\*\*「責任C: 給与計算ロジック」\*\*がここに該当します。
@@ -75,7 +75,7 @@ class ExecutePayrollUseCase(IExecutePayrollUseCase):
 
 -----
 
-## 2\. インフラストラクチャ層 (Infrastructure) の実装
+## 🛠️ 2\. インフラストラクチャ層 (Infrastructure) の実装
 
 「インフラ層」は、`application_boundaries.py`で定義されたインターフェース（契約）を**具体的に実装**する層です。
 `OOP-01`の`PayrollSystem`が持っていた\*\*「責任A: 従業員管理」**と**「責任B: 支払記録」\*\*がここに該当します。
@@ -131,7 +131,7 @@ class InMemoryPayLogRepository(IPayLogRepository):
 
 -----
 
-## 3\. リファクタリングの進捗
+## 🛠️ 3\. リファクタリングの進捗
 
 `OOP-01`の`PayrollSystem`（神クラス）は、**ついに消滅しました。**
 
