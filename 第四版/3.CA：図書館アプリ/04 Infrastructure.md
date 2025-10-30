@@ -49,7 +49,7 @@ View → ViewModel → Presenter <OutputBoundary> → UseCaseInteractor ←Input
 ## 🧱 フォルダ構成（追加・修正）
 
 ```
-project_root_v2/
+project_root/
 ├── interface/                            # 第3章（そのまま）
 │   ├── controller/
 │   │   └── book_controller.py

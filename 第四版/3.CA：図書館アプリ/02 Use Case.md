@@ -31,7 +31,7 @@ Entity（ビジネスルール）を操作して「業務の流れ」を表現�
 ## 🧱 フォルダ構成（クラス図に対応）
 
 ```
-project_root_v2/
+project_root/
 ├── domain/
 │   ├── book.py
 │   └── member.py

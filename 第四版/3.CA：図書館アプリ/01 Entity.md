@@ -34,7 +34,7 @@ Entityはアプリケーションの**ビジネスルールそのもの**を表�
 ## 🧱 Entity層のファイル構成
 
 ```
-project_root_v2/
+project_root/
 └── domain/
     ├── book.py    ← Bookエンティティ
     ├── member.py  ← Memberエンティティ

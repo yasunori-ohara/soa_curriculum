@@ -43,7 +43,7 @@
 ## 🧱 フォルダ構成
 
 ```
-project_root_v2/
+project_root/
 ├── interface/
 │   ├── controller/
 │   │   ├── book_controller.py
