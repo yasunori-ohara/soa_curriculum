@@ -93,6 +93,9 @@ clean_architecture_todo/
 # File: core/usecase/interactor/create_todo.py
 # Layer: Use Case（アプリケーション固有のビジネスルール）
 #
+# [クラス図] UseCaseInteractor（Create）
+# [同心円] UseCase層
+#
 # 目的:
 #   - 「TODOを追加する」というユースケースの処理手順を定義する。
 #   - Entity（材料）を生成・操作し、
