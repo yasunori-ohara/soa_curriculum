@@ -1,10 +1,10 @@
-# 第4章（発展）：Infrastructure を FastAPI に差し替える
+# 05：Infrastructure を FastAPI に差し替える
 
 「昔ながらのWebサーバ＋HTML表示」から **FastAPI** に“外側だけ”差し替える章を用意しました。  
 ゴールは **(1) 層を守ったままフレームワークを入れ替えられる**ことを体感し、**(2) FastAPIの最小限だけ学ぶ**こと。
 
 
-## 🎯 この章の目的
+## 🎯 このページの目的
 
 * **Frameworks & Drivers（最外層）** を `http.server` → **FastAPI** に入れ替える
 * **中の層（Entity／UseCase／Controller／Presenter／Gateway／DB）には手を入れない**ことを確認する

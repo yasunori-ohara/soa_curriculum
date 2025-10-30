@@ -1,8 +1,8 @@
-# 第4章：Infrastructure（Frameworks & Drivers）
+# 04：Infrastructure（Frameworks & Drivers）
 
 — 昔ながらのWebサーバ＋HTML表示＋SQLite —
 
-## 🎯 この章の目的
+## 🎯 このページの目的
 
 * **同心円図の最外層（Frameworks & Drivers＝Infrastructure）** を、昔ながらの構成で実装する
 * Controller/Presenter/Gateway の**先（外側）**にある **Web（受付 & 表示）／DB** をつなぐ

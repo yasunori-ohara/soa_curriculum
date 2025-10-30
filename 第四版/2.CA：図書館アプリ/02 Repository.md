@@ -4,7 +4,7 @@
 ### `core/domain/repository.py`
 
 
-## 🧭 この章の目的
+## 🧭 このページの目的
 
 この章では、**ドメイン層に置く Repository（リポジトリ）インターフェース**を定義します。
 Repository は、これまで `<I> DataAccessInterface` と呼んでいたものと同じ役割です。

@@ -1,9 +1,9 @@
-# 第3章：Interface Adapter（Controller／Presenter／Gateway）
+# 03：Interface Adapter（Controller／Presenter／Gateway）
 
 
-## 🎯 この章の目的
+## 🎯 このページの目的
 
-この章では、クリーンアーキテクチャの**3層目（外側から2番目）**にあたる
+クリーンアーキテクチャの**3層目（外側から2番目）**にあたる
 **Interface Adapter（インターフェースアダプタ）層**を実装します。
 
 ここは、**外部世界（Web・DB・UI）と内側（UseCase層）をつなぐ橋**です。
