@@ -33,7 +33,7 @@
 ## 🧱 フォルダ構成（この章の範囲）
 
 ```
-project_round3/
+project_root/
 └── interface/
     ├── controller/
     │   └── reservation_controller.py

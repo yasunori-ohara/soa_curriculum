@@ -30,7 +30,7 @@
 ## 🧱 フォルダ構成（この章の範囲）
 
 ```
-project_round3/
+project_root/
 └── usecase/
     ├── dto.py
     ├── boundaries/

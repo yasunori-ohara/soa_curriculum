@@ -22,7 +22,7 @@ Interface Adapter（Controller／Presenter／Gateway）と Infrastructure（Fast
 ## 🧱 フォルダ（関係する箇所のおさらい）
 
 ```
-project_round3/
+project_root/
 ├── domain/ ...
 ├── usecase/
 │   └── create_reservation.py     ← UseCase（具体型）

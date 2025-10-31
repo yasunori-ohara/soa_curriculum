@@ -32,7 +32,7 @@
 ## 🧱 フォルダ構成（この章で追加）
 
 ```
-project_round3/
+project_root/
 └── infrastructure/
     ├── db/
     │   ├── sqlite_conn.py
