@@ -1,4 +1,4 @@
-# 第5章：Main（Composition Root：配線／依存注入）
+# 05：Main（Composition Root：配線／依存注入）
 
 **ここで全部つなぎます！**
 Interface Adapter（Controller／Presenter／Gateway）と Infrastructure（FastAPI／SQLite）を、

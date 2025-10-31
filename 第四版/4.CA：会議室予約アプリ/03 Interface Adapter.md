@@ -1,4 +1,4 @@
-# 第3章：Interface Adapter（インターフェースアダプタ）
+# 03：Interface Adapter（インターフェースアダプタ）
 
 **Controller／Presenter／Gateway をそろえて、UseCase を外の世界（Web／DB）とつなぐ“橋渡し層”**
 

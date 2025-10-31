@@ -1,4 +1,4 @@
-# 第2章：UseCase（ユースケース）での補足
+# 02a：UseCase（ユースケース）での補足
 
 ## 🤔contracts の ３つ reservation_repository.py 、room_repository.py、member_repository.py は Entityの３つを保存するものであるので、常にEntity内のクラスと同じ数が必要になるということでいいでしょうか？
 

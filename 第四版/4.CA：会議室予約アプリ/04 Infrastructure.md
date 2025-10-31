@@ -1,4 +1,4 @@
-# 第4章：Infrastructure（インフラ：Web／DB／View）
+# 04：Infrastructure（インフラ：Web／DB／View）
 
 **FastAPI（受付＝Controllerの先）＋ SQLite（DB）＋ HTML/JSON View（Presenterの先）**
 
